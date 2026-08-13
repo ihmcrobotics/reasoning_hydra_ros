@@ -38,22 +38,35 @@
 
 // Copyright (c) 2025, Autonomous Robots Lab, Norwegian University of Science and
 // Technology All rights reserved.
+//
+// Copyright (c) 2026, IHMC Robotics Lab.
+// All rights reserved.
 
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree.
 #pragma once
 #include <glog/logging.h>
 #include <hydra/input/sensor_input_packet.h>
-#include <sensor_msgs/PointCloud2.h>
-#include <sensor_msgs/PointField.h>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <sensor_msgs/msg/point_field.hpp>
 
 #include <functional>
+#include <ostream>
+
+namespace sensor_msgs::msg {
+
+inline std::ostream& operator<<(std::ostream& out, const PointField& field) {
+  return out << "PointField(name='" << field.name << "', offset=" << field.offset
+             << ", datatype=" << static_cast<int>(field.datatype) << ")";
+}
+
+}  // namespace sensor_msgs::msg
 
 namespace hydra {
 
 class PointcloudAdaptor {
  public:
-  explicit PointcloudAdaptor(const sensor_msgs::PointCloud2& cloud);
+  explicit PointcloudAdaptor(const sensor_msgs::msg::PointCloud2& cloud);
 
   bool valid() const;
 
@@ -74,15 +87,15 @@ class PointcloudAdaptor {
 };
 
 std::function<double(const uint8_t*)> initFloatParser(
-    const sensor_msgs::PointField& field);
+    const sensor_msgs::msg::PointField& field);
 
 std::function<double(const uint8_t*)> initIntParser(
-    const sensor_msgs::PointField& field);
+    const sensor_msgs::msg::PointField& field);
 
 std::function<cv::Vec3b(const uint8_t*)> initColorParser(
-    const sensor_msgs::PointField& field);
+    const sensor_msgs::msg::PointField& field);
 
-bool fillPointcloudPacket(const sensor_msgs::PointCloud2& msg,
+bool fillPointcloudPacket(const sensor_msgs::msg::PointCloud2& msg,
                           CloudInputPacket& packet,
                           bool labels_required);
 

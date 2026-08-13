@@ -1,42 +1,47 @@
 <?xml version="1.0"?>
-<package format="2">
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
   <name>hydra_ros</name>
   <version>1.0.0</version>
-  <description>hydra ros nodes</description>
-
+  <description>Hydra ROS2 runtime nodes</description>
+  <author email="achatterjee@ihmc.org">Arghya Chatterjee</author>
   <author email="albert.g.puigjaner@ntnu.no">Albert Gassol Puigjaner</author>
   <author email="na26933@mit.edu">Nathan Hughes</author>
   <maintainer email="albert.g.puigjaner@ntnu.no">Albert Gassol Puigjaner</maintainer>
-
+  <maintainer email="achatterjee@ihmc.org">Arghya Chatterjee</maintainer>
   <license>BSD</license>
 
-  <buildtool_depend>catkin</buildtool_depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
   <depend>cv_bridge</depend>
-  <depend>dynamic_reconfigure</depend>
   <depend>geometry_msgs</depend>
   <depend>hydra</depend>
   <depend>hydra_msgs</depend>
   <depend>image_transport</depend>
-  <depend>kimera_pgmo_ros</depend>
+  <depend>ianvs</depend>
   <depend>kimera_pgmo_msgs</depend>
-  <depend>rosbag</depend>
-  <depend>roscpp</depend>
-  <exec_depend>rospy</exec_depend>
+  <depend>kimera_pgmo_ros</depend>
+  <depend>message_filters</depend>
+  <depend>pose_graph_tools_msgs</depend>
+  <depend>pose_graph_tools_ros</depend>
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>semantic_inference_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
   <depend>tf2_eigen</depend>
   <depend>tf2_ros</depend>
-
-  <depend>pose_graph_tools_ros</depend>
-  <depend>pose_graph_tools_msgs</depend>
   <depend>visualization_msgs</depend>
-  <depend>semantic_inference_msgs</depend>
+  <depend>vision_msgs</depend>
 
-  <exec_depend>image_proc</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
   <exec_depend>depth_image_proc</exec_depend>
-  <exec_depend>rviz</exec_depend>
-  <exec_depend>kimera_pgmo_rviz</exec_depend>
+  <exec_depend>image_proc</exec_depend>
+  <exec_depend>rviz2</exec_depend>
 
   <export>
+    <build_type>ament_cmake</build_type>
   </export>
-
 </package>

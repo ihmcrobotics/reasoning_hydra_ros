@@ -1,7 +1,7 @@
-<library path="lib/libhydra_ui">
+<library path="hydra_ui">
   <class name="hydra_ui/Hydra Control"
          type="hydra_ui::HydraPanel"
-         base_class_type="rviz::Panel">
+         base_class_type="rviz_common::Panel">
     <description>
       A panel widget for control of hydra.
     </description>

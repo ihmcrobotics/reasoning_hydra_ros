@@ -1,50 +1,7 @@
-// Portions of the following code and their modifications are originally from
-// https://github.com/MIT-SPARK/Hydra/tree/main and are licensed under the following
-// license:
-/* -----------------------------------------------------------------------------
- * Copyright 2022 Massachusetts Institute of Technology.
- * All Rights Reserved
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *  1. Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *
- *  2. Redistributions in binary form must reproduce the above copyright notice,
- *     this list of conditions and the following disclaimer in the documentation
- *     and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
- * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
- * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- *
- * Research was sponsored by the United States Air Force Research Laboratory and
- * the United States Air Force Artificial Intelligence Accelerator and was
- * accomplished under Cooperative Agreement Number FA8750-19-2-1000. The views
- * and conclusions contained in this document are those of the authors and should
- * not be interpreted as representing the official policies, either expressed or
- * implied, of the United States Air Force or the U.S. Government. The U.S.
- * Government is authorized to reproduce and distribute reprints for Government
- * purposes notwithstanding any copyright notation herein.
- * -------------------------------------------------------------------------- */
-
-// Copyright (c) 2025, Autonomous Robots Lab, Norwegian University of Science and
-// Technology All rights reserved.
-
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree.
 #include "hydra_ros/hydra_ros_pipeline.h"
 
 #include <config_utilities/config.h>
-#include <config_utilities/parsing/ros.h>
+#include <config_utilities/parsing/context.h>
 #include <config_utilities/printing.h>
 #include <config_utilities/validation.h>
 #include <hydra/backend/backend_module.h>
@@ -55,157 +12,169 @@
 #include <hydra/frontend/frontend_module.h>
 #include <hydra/loop_closure/loop_closure_module.h>
 #include <hydra/reconstruction/reconstruction_module.h>
-#include <pose_graph_tools_ros/conversions.h>
 
 #include <memory>
 
 #include "hydra_ros/backend/ros_backend_publisher.h"
-#include "hydra_ros/frontend/ros_frontend_publisher.h"
-#include "hydra_ros/loop_closure/ros_lcd_registration.h"
-#include "hydra_ros/utils/bow_subscriber.h"
+#include "hydra_ros/backend/ros_vlm_relationships.h"
+#include "hydra_ros/navigation/ros_navigation_interface.h"
 
 namespace hydra {
 
-void declare_config(HydraRosConfig& conf) {
+void declare_config(HydraRosConfig& config) {
   using namespace config;
   name("HydraRosConfig");
-  field(conf.enable_frontend_output, "enable_frontend_output");
-  field(conf.input, "input");
+  field(config.enable_frontend_output, "enable_frontend_output");
+  field(config.enable_reasoning, "enable_reasoning");
+  field(config.active_object_edges_topic, "active_object_edges_topic");
+  field(config.vlm_relationship_service, "vlm_relationship_service");
+  field(config.vlm_encodings_topic, "vlm_encodings_topic");
+  field(config.vlm_labels_topic, "vlm_labels_topic");
+  field(config.input, "input");
 }
 
-HydraRosPipeline::HydraRosPipeline(const ros::NodeHandle& nh, int robot_id)
-    : HydraPipeline(config::fromRos<PipelineConfig>(nh), robot_id),
-      config_(config::checkValid(config::fromRos<HydraRosConfig>(nh))),
-      nh_(nh) {}
+HydraRosPipeline::HydraRosPipeline(int robot_id, int config_verbosity)
+    : HydraPipeline(config::fromContext<PipelineConfig>(),
+                    robot_id,
+                    config_verbosity),
+      config_(config::checkValid(config::fromContext<HydraRosConfig>())),
+      nh_(ianvs::NodeHandle::this_node("~")) {
+  LOG_IF(INFO, config_verbosity >= 1)
+      << "Starting "
+      << (config_.enable_reasoning ? "reasoning-enabled" : "standard")
+      << " Hydra ROS 2 with input configuration\n"
+      << config::toString(config_.input);
+}
 
-HydraRosPipeline::~HydraRosPipeline() {}
+HydraRosPipeline::~HydraRosPipeline() = default;
 
 void HydraRosPipeline::init() {
   const auto& pipeline_config = GlobalInfo::instance().getConfig();
   initFrontend();
-  ros::NodeHandle bnh(nh_, "backend");
-  initBackend(bnh);
+  initBackend();
   initReconstruction();
-  initNavigation(bnh);
+  initNavigation();
   if (pipeline_config.enable_lcd) {
     initLCD();
-    bow_sub_.reset(new BowSubscriber(nh_, shared_state_));
   }
 
   const auto reconstruction = getModule<ReconstructionModule>("reconstruction");
-  CHECK(reconstruction);
-  input_module_.reset(new RosInputModule(config_.input, reconstruction->queue()));
+  CHECK(reconstruction) << "Reconstruction module is required by RosInputModule";
+  input_module_ =
+      std::make_shared<RosInputModule>(config_.input, reconstruction->queue());
 }
 
 void HydraRosPipeline::initFrontend() {
-  ros::NodeHandle fnh(nh_, "frontend");
   const auto logs = GlobalInfo::instance().getLogs();
-  FrontendModule::Ptr frontend =
-      config::createFromROS<FrontendModule>(fnh, frontend_dsg_, shared_state_, logs);
+  auto frontend = config::createFromContextWithNamespace<FrontendModule>(
+      "frontend", frontend_dsg_, shared_state_, logs);
+  CHECK(frontend) << "Failed to construct frontend";
   if (config_.enable_frontend_output) {
-    CHECK(frontend) << "Frontend module required!";
-    frontend->addSink(std::make_shared<RosFrontendPublisher>(
-        fnh, config::fromRos<RosFrontendPublisher::Config>(fnh)));
+    LOG(WARNING) << "Frontend ROS output is configured but its ROS 2 publisher "
+                    "is not ported yet";
   }
-
-  modules_["frontend"] = frontend;
+  modules_["frontend"] = std::shared_ptr<FrontendModule>(std::move(frontend));
 }
 
-void HydraRosPipeline::initBackend(const ros::NodeHandle& bnh) {
+void HydraRosPipeline::initBackend() {
   const auto logs = GlobalInfo::instance().getLogs();
-  BackendModule::Ptr backend = config::createFromROS<BackendModule>(
-      bnh, backend_dsg_, shared_state_, GlobalInfo::instance().getLogs());
-  CHECK(backend) << "Failed to construct backend!";
-  backend->addSink(std::make_shared<RosBackendPublisher>(bnh));
+  auto backend = config::createFromContextWithNamespace<BackendModule>(
+      "backend", backend_dsg_, shared_state_, logs);
+  CHECK(backend) << "Failed to construct backend";
+  auto backend_ptr = std::shared_ptr<BackendModule>(std::move(backend));
+  modules_["backend"] = backend_ptr;
 
-  if (backend->config.use_vlm) {
-    ros::NodeHandle blnh(bnh, "vlm_relationships");
-    shared_state_->vlm_labels_queue.reset(new InputQueue<BackendVLMLabelsInput::Ptr>());
-    vlm_relationships_ = std::make_shared<RosVLMRelationships>(
-        blnh,
-        config::checkValid(config::fromRos<RosVLMRelationships::Config>(blnh)),
-        shared_state_->vlm_labels_queue);
-    backend->addSink(vlm_relationships_);
+  if (config_.enable_reasoning) {
+    ros2_backend_publisher_ = std::make_shared<Ros2BackendPublisher>(
+        nh_, config_.active_object_edges_topic);
+    backend_ptr->addSink(ros2_backend_publisher_);
+    LOG(INFO) << "Publishing active object relationships on "
+              << config_.active_object_edges_topic;
+
+    shared_state_->vlm_labels_queue =
+        std::make_shared<InputQueue<BackendVLMLabelsInput::Ptr>>();
+    Ros2VLMRelationships::Config vlm_config;
+    vlm_config.service = config_.vlm_relationship_service;
+    vlm_config.encodings_topic = config_.vlm_encodings_topic;
+    vlm_config.labels_topic = config_.vlm_labels_topic;
+    ros2_vlm_relationships_ = std::make_shared<Ros2VLMRelationships>(
+        nh_, vlm_config, shared_state_->vlm_labels_queue);
+    backend_ptr->addSink(ros2_vlm_relationships_);
+    LOG(INFO) << "VLM relationship bridge listening on "
+              << config_.vlm_relationship_service;
   }
-  modules_["backend"] = backend;
+
+  if (backend_ptr->config.use_vlm) {
+    LOG(WARNING) << "VLM relationships are enabled, but the ROS 2 VLM adapter "
+                    "is not ported yet";
+  }
 
   const auto frontend = getModule<FrontendModule>("frontend");
-  if (!frontend) {
-    LOG(ERROR) << "Invalid frontend module! Not setting 2D places update";
-    return;
-  }
-
+  CHECK(frontend);
   if (frontend->config.surface_places) {
-    auto places_functor =
-        std::make_shared<Update2dPlacesFunctor>(backend->config.places2d_config);
-    backend->setUpdateFunctor(DsgLayers::MESH_PLACES, places_functor);
+    backend_ptr->setUpdateFunctor(
+        DsgLayers::MESH_PLACES,
+        std::make_shared<Update2dPlacesFunctor>(
+            backend_ptr->config.places2d_config));
   }
-
   if (frontend->config.use_frontiers && frontend->config.frontier_places) {
-    auto frontiers_functor =
-        std::make_shared<UpdateFrontiersFunctor>(backend->config.frontier_config);
-    backend->setUpdateFunctor(DsgLayers::BUILDINGS + 1, frontiers_functor);
+    backend_ptr->setUpdateFunctor(
+        DsgLayers::BUILDINGS + 1,
+        std::make_shared<UpdateFrontiersFunctor>(
+            backend_ptr->config.frontier_config));
   }
 }
 
 void HydraRosPipeline::initReconstruction() {
   const auto frontend = getModule<FrontendModule>("frontend");
-  if (!frontend) {
-    LOG(ERROR) << "Invalid frontend module: disabling reconstruction";
-    return;
-  }
-
-  ros::NodeHandle rnh(nh_, "reconstruction");
+  CHECK(frontend) << "Frontend is required by reconstruction";
+  auto reconstruction =
+      config::createFromContextWithNamespace<ReconstructionModule>(
+          "reconstruction", frontend->getQueue());
+  CHECK(reconstruction) << "Failed to construct reconstruction";
   modules_["reconstruction"] =
-      config::createFromROS<ReconstructionModule>(rnh, frontend->getQueue());
+      std::shared_ptr<ReconstructionModule>(std::move(reconstruction));
 }
 
 void HydraRosPipeline::initLCD() {
-  auto lcd_config = config::fromRos<LoopClosureConfig>(nh_);
-  lcd_config.detector.num_semantic_classes = GlobalInfo::instance().getTotalLabels();
-  VLOG(1) << "Number of classes for LCD: " << lcd_config.detector.num_semantic_classes;
-  config::checkValid(lcd_config);
-
-  shared_state_->lcd_queue.reset(new InputQueue<LcdInput::Ptr>());
-  auto lcd = std::make_shared<LoopClosureModule>(lcd_config, shared_state_);
-  modules_["lcd"] = lcd;
-
-  if (lcd_config.detector.enable_agent_registration) {
-    lcd->getDetector().setRegistrationSolver(0,
-                                             std::make_unique<lcd::DsgAgentSolver>());
-  }
+  auto config = config::fromContext<LoopClosureConfig>("lcd");
+  config.detector.num_semantic_classes =
+      GlobalInfo::instance().getTotalLabels();
+  config::checkValid(config);
+  shared_state_->lcd_queue = std::make_shared<InputQueue<LcdInput::Ptr>>();
+  modules_["lcd"] = std::make_shared<LoopClosureModule>(config, shared_state_);
 }
 
-void HydraRosPipeline::initNavigation(const ros::NodeHandle& bnh) {
-  ros::NodeHandle nnh(nh_, "navigation");
-  ros::NodeHandle osnh(nh_, "object_search");
-  NavigationModule::Ptr navigation_module =
+void HydraRosPipeline::initNavigation() {
+  if (!config_.enable_reasoning) {
+    return;
+  }
+
+  auto navigation =
       std::make_shared<NavigationModule>(NavigationModule::Config{});
-  ObjectSearchModule::Ptr object_search_module =
-      config::createFromROS<ObjectSearchModule>(osnh);
-  RosNavigationInterface::Config navigation_config =
-      config::fromRos<RosNavigationInterface::Config>(osnh);
-  CHECK(navigation_module) << "Failed to construct navigation module!";
-  navigation_interface_ =
-      std::make_unique<RosNavigationInterface>(navigation_config,
-                                               nnh,
-                                               bnh,
-                                               navigation_module->inputQueue(),
-                                               object_search_module->inputQueue(),
-                                               navigation_module->outputQueue(),
-                                               object_search_module->outputQueue(),
-                                               navigation_module,
-                                               object_search_module);
-  modules_["navigation"] = navigation_module;
-  modules_["object_search"] = object_search_module;
+  auto object_search_config = config::checkValid(
+      config::fromContext<ObjectSearchModule::Config>("object_search"));
+  auto object_search =
+      std::make_shared<ObjectSearchModule>(object_search_config);
+
+  ros2_navigation_interface_ = std::make_shared<Ros2NavigationInterface>(
+      nh_,
+      Ros2NavigationInterface::Config{},
+      backend_dsg_,
+      navigation,
+      object_search);
+  modules_["navigation"] = navigation;
+  modules_["object_search"] = object_search;
+  LOG(INFO) << "Navigation bridge listening on "
+            << Ros2NavigationInterface::Config{}.find_paths_service;
 }
 
 void HydraRosPipeline::loadGraph(const std::string& filepath) {
-  auto graph = hydra::DynamicSceneGraph::load(filepath);
+  auto graph = DynamicSceneGraph::load(filepath);
   auto backend = getModule<BackendModule>("backend");
   auto frontend = getModule<FrontendModule>("frontend");
   if (!graph || !backend || !frontend) {
-    LOG(ERROR) << "Failed to load graph or invalid modules!";
+    LOG(ERROR) << "Failed to load graph or invalid modules";
     return;
   }
   backend->setGraph(graph);

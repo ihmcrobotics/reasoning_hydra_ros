@@ -1,168 +1,108 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.22)
 project(hydra_ros)
 
-add_compile_options(-Wall -Wextra)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(OpenCV REQUIRED COMPONENTS core imgproc)
-find_package(hydra REQUIRED)
-find_package(PCL REQUIRED)
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra)
+endif()
+
+option(BUILD_SHARED_LIBS "Build shared libraries" ON)
+
+find_package(ament_cmake REQUIRED)
+find_package(ament_cmake_python REQUIRED)
+find_package(cv_bridge REQUIRED)
+find_package(geometry_msgs REQUIRED)
 find_package(gflags REQUIRED)
-find_package(
-  catkin REQUIRED
-  COMPONENTS cv_bridge
-             dynamic_reconfigure
-             geometry_msgs
-             hydra_msgs
-             image_transport
-             kimera_pgmo_ros
-             kimera_pgmo_msgs
-             rosbag
-             rospy
-             roscpp
-             std_msgs
-             tf2_eigen
-             tf2_ros
-             visualization_msgs
-             semantic_inference_msgs
-             pose_graph_tools_ros
-             pose_graph_tools_msgs
-)
+find_package(hydra REQUIRED)
+find_package(hydra_msgs REQUIRED)
+find_package(image_transport REQUIRED)
+find_package(ianvs REQUIRED)
+find_package(kimera_pgmo_msgs REQUIRED)
+find_package(kimera_pgmo_ros REQUIRED)
+find_package(message_filters REQUIRED)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc)
+find_package(PCL REQUIRED)
+find_package(pose_graph_tools_msgs REQUIRED)
+find_package(pose_graph_tools_ros REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(semantic_inference_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
+find_package(tf2_eigen REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(visualization_msgs REQUIRED)
+find_package(vision_msgs REQUIRED)
 
-catkin_python_setup()
+ament_python_install_package(${PROJECT_NAME} PACKAGE_DIR src/${PROJECT_NAME})
 
-generate_dynamic_reconfigure_options(
-  cfg/Colormap.cfg
-  cfg/DynamicLayerVisualizer.cfg
-  cfg/GvdVisualizer.cfg
-  cfg/LayerVisualizer.cfg
-  cfg/Navigation.cfg
-  cfg/Visualizer.cfg
-)
-
-catkin_package(
-  CATKIN_DEPENDS
-  cv_bridge
-  dynamic_reconfigure
-  geometry_msgs
-  hydra_msgs
-  image_transport
-  kimera_pgmo_ros
-  kimera_pgmo_msgs
-  rosbag
-  roscpp
-  std_msgs
-  tf2_eigen
-  tf2_ros
-  visualization_msgs
-  pose_graph_tools_ros
-  pose_graph_tools_msgs
-  semantic_inference_msgs
-  DEPENDS hydra PCL OpenCV
-  INCLUDE_DIRS include
-  LIBRARIES ${PROJECT_NAME}
-)
-
-add_library(
-  ${PROJECT_NAME}
+add_library(${PROJECT_NAME}
   src/hydra_ros_pipeline.cpp
-  src/hydra_vis_pipeline.cpp
   src/backend/ros_backend_publisher.cpp
-  src/backend/ros_backend.cpp
   src/backend/ros_vlm_relationships.cpp
-  src/frontend/object_visualizer.cpp
-  src/frontend/places_visualizer.cpp
-  src/frontend/ros_frontend_publisher.cpp
-  src/input/accum_pointcloud_image_receiver.cpp
   src/input/enhanced_pointcloud_adaptor.cpp
-  src/input/compressed_image_receiver.cpp
   src/input/image_receiver.cpp
   src/input/pointcloud_adaptor.cpp
-  src/input/pointcloud_image_receiver.cpp
   src/input/pointcloud_receiver.cpp
   src/input/ros_input_module.cpp
   src/input/ros_sensors.cpp
-  src/loop_closure/ros_lcd_registration.cpp
   src/navigation/ros_navigation_interface.cpp
-  src/odometry/ros_pose_graph_tracker.cpp
-  src/reconstruction/reconstruction_visualizer.cpp
-  src/utils/bag_reader.cpp
-  src/utils/bow_subscriber.cpp
-  src/utils/dsg_streaming_interface.cpp
-  src/utils/ear_clipping.cpp
-  src/utils/lookup_tf.cpp
-  src/utils/node_utilities.cpp
-  src/utils/occupancy_publisher.cpp
-  src/utils/pose_cache.cpp
-  src/visualizer/basis_point_plugin.cpp
-  src/visualizer/mesh_color_adaptor.cpp
-  src/visualizer/colormap_utilities.cpp
-  src/visualizer/config_manager.cpp
-  src/visualizer/dynamic_scene_graph_visualizer.cpp
-  src/visualizer/footprint_plugin.cpp
-  src/visualizer/gt_region_plugin.cpp
-  src/visualizer/gvd_visualization_utilities.cpp
-  src/visualizer/hydra_visualizer.cpp
-  src/visualizer/mesh_plugin.cpp
-  src/visualizer/polygon_utilities.cpp
-  src/visualizer/region_plugin.cpp
-  src/visualizer/visualizer_plugins.cpp
-  src/visualizer/visualizer_utilities.cpp
-)
-target_include_directories(
-  ${PROJECT_NAME}
-  PUBLIC include ${catkin_INCLUDE_DIRS}
-  PRIVATE ${OpenCV_INCLUDE_DIRS} ${PCL_INCLUDE_DIRS}
-)
-target_link_libraries(
-  ${PROJECT_NAME}
-  PUBLIC ${catkin_LIBRARIES} hydra::hydra
-  PRIVATE ${OpenCV_LIBRARIES} ${PCL_LIBRARIES}
-)
-add_dependencies(
-  ${PROJECT_NAME} ${catkin_EXPORTED_TARGETS} ${${PROJECT_NAME}_EXPORTED_TARGETS}
-)
-
-add_executable(dsg_optimizer_node src/nodes/dsg_optimizer_node.cpp)
-target_link_libraries(dsg_optimizer_node ${PROJECT_NAME} ${gflags_LIBRARIES})
+  src/utils/lookup_tf.cpp)
+target_include_directories(${PROJECT_NAME}
+  PUBLIC
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+    "$<INSTALL_INTERFACE:include>"
+  PRIVATE ${OpenCV_INCLUDE_DIRS} ${PCL_INCLUDE_DIRS})
+target_link_libraries(${PROJECT_NAME}
+  PUBLIC
+    hydra::hydra
+    ianvs::ianvs
+    kimera_pgmo_ros::kimera_pgmo_ros
+    pose_graph_tools_ros::pose_graph_tools_ros
+    tf2_eigen::tf2_eigen
+    tf2_ros::tf2_ros
+  PRIVATE
+    cv_bridge::cv_bridge
+    ${OpenCV_LIBRARIES}
+    ${PCL_LIBRARIES})
+ament_target_dependencies(${PROJECT_NAME}
+  PUBLIC
+    geometry_msgs
+    hydra_msgs
+    image_transport
+    kimera_pgmo_msgs
+    message_filters
+    pose_graph_tools_msgs
+    rclcpp
+    sensor_msgs
+    semantic_inference_msgs
+    std_msgs
+    std_srvs
+    visualization_msgs
+    vision_msgs)
 
 add_executable(hydra_ros_node src/nodes/hydra_node.cpp)
-target_link_libraries(hydra_ros_node ${PROJECT_NAME} ${gflags_LIBRARIES})
-
-add_executable(hydra_vis_graph_node src/nodes/hydra_vis_graph_node.cpp)
-target_link_libraries(hydra_vis_graph_node ${PROJECT_NAME} ${gflags_LIBRARIES})
-
-add_executable(hydra_visualizer_node src/nodes/hydra_visualizer_node.cpp)
-target_link_libraries(hydra_visualizer_node ${PROJECT_NAME} ${gflags_LIBRARIES})
-
-add_executable(rotate_tf_node src/nodes/rotate_tf_node.cpp)
-target_include_directories(rotate_tf_node PUBLIC ${catkin_INCLUDE_DIRS})
-target_link_libraries(rotate_tf_node PUBLIC ${catkin_LIBRARIES})
-
-add_executable(scene_graph_logger_node src/nodes/scene_graph_logger_node.cpp)
-target_link_libraries(scene_graph_logger_node ${PROJECT_NAME})
-
-
-if(CATKIN_ENABLE_TESTING)
-  add_subdirectory(tests)
-endif()
+target_include_directories(hydra_ros_node PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(hydra_ros_node ${PROJECT_NAME} gflags)
+ament_target_dependencies(hydra_ros_node
+  hydra_msgs rclcpp std_srvs)
 
 install(
-  TARGETS ${PROJECT_NAME}
-          dsg_optimizer_node
-          hydra_ros_node
-          hydra_visualizer_node
-          rotate_tf_node
-          scene_graph_logger_node
-  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}
-)
+  TARGETS ${PROJECT_NAME} hydra_ros_node
+  EXPORT ${PROJECT_NAME}-targets
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY include/ DESTINATION include/)
+install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
 
-install(DIRECTORY include/${PROJECT_NAME}/
-        DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
-)
-
-install(DIRECTORY launch/ DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/launch)
+ament_export_targets(${PROJECT_NAME}-targets HAS_LIBRARY_TARGET)
+ament_export_dependencies(
+  geometry_msgs hydra hydra_msgs image_transport ianvs kimera_pgmo_msgs
+  kimera_pgmo_ros message_filters pose_graph_tools_msgs pose_graph_tools_ros
+  rclcpp sensor_msgs semantic_inference_msgs std_msgs tf2_eigen tf2_ros
+  std_srvs visualization_msgs vision_msgs)
+ament_package()

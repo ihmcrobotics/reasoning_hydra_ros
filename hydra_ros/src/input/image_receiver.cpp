@@ -38,26 +38,24 @@
 
 // Copyright (c) 2025, Autonomous Robots Lab, Norwegian University of Science and
 // Technology All rights reserved.
+//
+// Copyright (c) 2026, IHMC Robotics Lab.
+// All rights reserved.
 
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree.
 #include "hydra_ros/input/image_receiver.h"
 
 #include <config_utilities/config.h>
-#include <cv_bridge/cv_bridge.h>
+#include <cv_bridge/cv_bridge.hpp>
 #include <glog/logging.h>
-#include <ros/console.h>
+#include <rclcpp/time.hpp>
+#include <sensor_msgs/image_encodings.hpp>
+
+#include <ianvs/node_handle.h>
+#include <ianvs/node_init.h>
 
 namespace hydra {
-
-using image_transport::ImageTransport;
-using image_transport::SubscriberFilter;
-
-image_transport::TransportHints getHintsWithNamespace(const ros::NodeHandle& nh,
-                                                      const std::string& ns) {
-  return image_transport::TransportHints(
-      "raw", ros::TransportHints(), ros::NodeHandle(nh, ns));
-}
 
 void declare_config(ImageReceiver::Config& config) {
   using namespace config;
@@ -67,36 +65,34 @@ void declare_config(ImageReceiver::Config& config) {
   field(config.queue_size, "queue_size");
 }
 
-ImageSubscriber::ImageSubscriber() {}
-
-ImageSubscriber::ImageSubscriber(const ros::NodeHandle& nh,
-                                 const std::string& camera_name,
-                                 const std::string& image_name,
-                                 uint32_t queue_size)
-    : transport(std::make_shared<ImageTransport>(ros::NodeHandle(nh, camera_name))),
-      sub(std::make_shared<SubscriberFilter>(
-          *transport, image_name, queue_size, getHintsWithNamespace(nh, camera_name))) {
-}
-
 ImageReceiver::ImageReceiver(const Config& config, size_t sensor_id)
-    : DataReceiver(config, sensor_id), config(config), nh_(config.ns) {}
+    : DataReceiver(config, sensor_id), config(config) {}
 
 bool ImageReceiver::initImpl() {
   // TODO(nathan) subscribe to image subsets
   // color_sub_ = ImageSubscriber(nh_, "rgb");
   // depth_sub_ = ImageSubscriber(nh_, "depth_registered", "image_rect");
 
-  enable_processing_service_ = nh_.advertiseService(
-      "toggle_image_processing", &ImageReceiver::toggleProcessingService, this);
+  auto nh = ianvs::NodeHandle::this_node(config.ns);
+  auto* node = ianvs::CurrentNode::get();
+  CHECK(node) << "ianvs current node is not initialized";
+  enable_processing_service_ = nh.create_service<std_srvs::srv::Trigger>(
+      "toggle_image_processing",
+      std::bind(&ImageReceiver::toggleProcessingService,
+                this,
+                std::placeholders::_1,
+                std::placeholders::_2));
 
-  camera_info_sub_ = nh_.subscribe(
-      "rgb/camera_info", config.queue_size, &ImageReceiver::callbackCameraInfo, this);
-  color_sub_.subscribe(nh_, "rgb/image_raw", config.queue_size);
-  depth_sub_.subscribe(nh_, "depth_registered/image_rect", config.queue_size);
-  panoptic_sub_.subscribe(nh_, "panoptic/image_raw", config.queue_size);
-  feature_sub_.subscribe(nh_, "image_feature", config.queue_size);
-  label_sub_.subscribe(nh_, "semantic", config.queue_size);
-  relations_sub_.subscribe(nh_, "relations", config.queue_size);
+  camera_info_sub_ = nh.create_subscription<sensor_msgs::msg::CameraInfo>(
+      "rgb/camera_info",
+      rclcpp::SensorDataQoS().keep_last(config.queue_size),
+      std::bind(&ImageReceiver::callbackCameraInfo, this, std::placeholders::_1));
+  color_sub_.subscribe(node, nh.resolve_name("rgb/image_raw", false), rmw_qos_profile_sensor_data);
+  depth_sub_.subscribe(node, nh.resolve_name("depth_registered/image_rect", false), rmw_qos_profile_sensor_data);
+  panoptic_sub_.subscribe(node, nh.resolve_name("panoptic/image_raw", false), rmw_qos_profile_sensor_data);
+  feature_sub_.subscribe(node, nh.resolve_name("image_feature", false), rmw_qos_profile_sensor_data);
+  label_sub_.subscribe(node, nh.resolve_name("semantic", false), rmw_qos_profile_sensor_data);
+  relations_sub_.subscribe(node, nh.resolve_name("relations", false), rmw_qos_profile_sensor_data);
   synchronizer_.reset(new Synchronizer(SyncPolicy(config.queue_size),
                                        color_sub_,
                                        depth_sub_,
@@ -104,46 +100,45 @@ bool ImageReceiver::initImpl() {
                                        feature_sub_,
                                        label_sub_,
                                        relations_sub_));
-  synchronizer_->registerCallback(
-      boost::bind(&ImageReceiver::callback, this, _1, _2, _3, _4, _5, _6));
-  // Print full topic names for debugging.
-  ROS_INFO("[image_receiver] Subscribed to: %s", color_sub_.getSubscriber().getTopic().c_str());
-  ROS_INFO("[image_receiver] Subscribed to: %s", depth_sub_.getSubscriber().getTopic().c_str());
-  ROS_INFO("[image_receiver] Subscribed to: %s", panoptic_sub_.getSubscriber().getTopic().c_str());
-  ROS_INFO("[image_receiver] Subscribed to: %s", feature_sub_.getSubscriber().getTopic().c_str());
-  ROS_INFO("[image_receiver] Subscribed to: %s", label_sub_.getSubscriber().getTopic().c_str());
-  ROS_INFO("[image_receiver] Subscribed to: %s", relations_sub_.getSubscriber().getTopic().c_str());
+  synchronizer_->registerCallback(std::bind(&ImageReceiver::callback,
+                                             this,
+                                             std::placeholders::_1,
+                                             std::placeholders::_2,
+                                             std::placeholders::_3,
+                                             std::placeholders::_4,
+                                             std::placeholders::_5,
+                                             std::placeholders::_6));
 
   return true;
 }
 
 ImageReceiver::~ImageReceiver() {}
 
-bool ImageReceiver::toggleProcessingService(std_srvs::Trigger::Request& req,
-                                            std_srvs::Trigger::Response& res) {
+void ImageReceiver::toggleProcessingService(
+    const std::shared_ptr<std_srvs::srv::Trigger::Request> /*req*/,
+    std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
   processing_enabled_ = !processing_enabled_;
-  res.success = true;
-  res.message = processing_enabled_ ? "Processing enabled" : "Processing disabled";
-  ROS_INFO("[image_receiver] Image processing %s",
-           processing_enabled_ ? "enabled" : "disabled");
-  return true;
+  res->success = true;
+  res->message = processing_enabled_ ? "Processing enabled" : "Processing disabled";
+  LOG(INFO) << "[image_receiver] " << res->message;
 }
 
-std::string showImageDim(const sensor_msgs::Image::ConstPtr& image) {
+std::string showImageDim(const sensor_msgs::msg::Image::ConstSharedPtr& image) {
   std::stringstream ss;
   ss << "[" << image->width << ", " << image->height << "]";
   return ss.str();
 }
 
-void ImageReceiver::callbackCameraInfo(const sensor_msgs::CameraInfoConstPtr& msg) {
+void ImageReceiver::callbackCameraInfo(
+    const sensor_msgs::msg::CameraInfo::ConstSharedPtr& msg) {
   if (msg->distortion_model == "none") {
     LOG(WARNING) << "Camera info has no distortion model. Skipping initialization.";
     maps_.init = true;  // No distortion, so we can consider it initialized.
-    camera_info_sub_.shutdown();
+    camera_info_sub_.reset();
     return;
   }
-  cv::Mat camera_matrix(3, 3, CV_64F, const_cast<double*>(msg->K.data()));
-  cv::Mat dist_coeffs = cv::Mat(msg->D).clone();
+  cv::Mat camera_matrix(3, 3, CV_64F, const_cast<double*>(msg->k.data()));
+  cv::Mat dist_coeffs = cv::Mat(msg->d).clone();
   cv::Size image_size(msg->width, msg->height);
   cv::initUndistortRectifyMap(camera_matrix,
                               dist_coeffs,
@@ -154,15 +149,15 @@ void ImageReceiver::callbackCameraInfo(const sensor_msgs::CameraInfoConstPtr& ms
                               maps_.map1,
                               maps_.map2);
   maps_.init = true;
-  ROS_INFO("[image_receiver] Initialized camera maps for undistortion and rectification.");
-  camera_info_sub_.shutdown();
+  LOG(INFO) << "[image_receiver] Initialized camera rectification maps";
+  camera_info_sub_.reset();
 }
 
 void ImageReceiver::processLabels(
     const cv::Mat& panoptic_ids,
-    const semantic_inference_msgs::FeatureImage::ConstPtr& labels,
+    const semantic_inference_msgs::msg::FeatureImage::ConstSharedPtr& labels,
     ImageInputPacket::Ptr& packet,
-    const semantic_inference_msgs::FeatureVectorsStamped::ConstPtr& relations) const {
+    const semantic_inference_msgs::msg::FeatureVectorsStamped::ConstSharedPtr& relations) const {
   // Initialize the features mask
   packet->features_mask = cv::Mat::zeros(panoptic_ids.size(), CV_16UC1);
   panoptic_ids.convertTo(packet->features_mask.value(), CV_16UC1);
@@ -197,18 +192,22 @@ void ImageReceiver::processLabels(
 }
 
 void ImageReceiver::callback(
-    const sensor_msgs::ImageConstPtr& color,
-    const sensor_msgs::ImageConstPtr& depth,
-    const sensor_msgs::ImageConstPtr& panoptic_ids,
-    const semantic_inference_msgs::FeatureVectorStamped::ConstPtr& features,
-    const semantic_inference_msgs::FeatureImage::ConstPtr& labels,
-    const semantic_inference_msgs::FeatureVectorsStamped::ConstPtr& relations) {
+    const sensor_msgs::msg::Image::ConstSharedPtr& color,
+    const sensor_msgs::msg::Image::ConstSharedPtr& depth,
+    const sensor_msgs::msg::Image::ConstSharedPtr& panoptic_ids,
+    const semantic_inference_msgs::msg::FeatureVectorStamped::ConstSharedPtr& features,
+    const semantic_inference_msgs::msg::FeatureImage::ConstSharedPtr& labels,
+    const semantic_inference_msgs::msg::FeatureVectorsStamped::ConstSharedPtr& relations) {
   if (!maps_.init) {
     LOG(ERROR) << "Camera maps are not initialized. Cannot process images.";
     return;
   }
   if (!processing_enabled_) {
-    ROS_WARN_THROTTLE(5.0, "[image_receiver] Image processing paused via service toggle.");
+    auto nh = ianvs::NodeHandle::this_node();
+    RCLCPP_WARN_THROTTLE(nh.logger(),
+                         *nh.clock(),
+                         5000,
+                         "Image processing paused via service toggle");
     return;
   }
 
@@ -217,7 +216,8 @@ void ImageReceiver::callback(
                << showImageDim(color) << " != " << showImageDim(depth);
     return;
   }
-  const auto labels_image = boost::make_shared<sensor_msgs::Image>(labels->image);
+  const auto labels_image =
+      std::make_shared<sensor_msgs::msg::Image>(labels->image);
   if (labels_image &&
       (labels_image->width != depth->width || labels_image->height != depth->height)) {
     LOG(ERROR) << "label dimensions do not match depth dimensions: "
@@ -225,12 +225,13 @@ void ImageReceiver::callback(
     return;
   }
 
-  if (!checkInputTimestamp(depth->header.stamp.toNSec())) {
+  if (!checkInputTimestamp(rclcpp::Time(depth->header.stamp).nanoseconds())) {
     return;
   }
 
   auto packet =
-      std::make_shared<ImageInputPacket>(color->header.stamp.toNSec(), sensor_id_);
+      std::make_shared<ImageInputPacket>(
+          rclcpp::Time(color->header.stamp).nanoseconds(), sensor_id_);
   try {
     const auto cv_depth = cv_bridge::toCvShare(depth);
     packet->depth = cv_depth->image.clone();

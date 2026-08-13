@@ -1,5 +1,8 @@
 // Copyright (c) 2025, Autonomous Robots Lab, Norwegian University of Science and
 // Technology All rights reserved.
+//
+// Copyright (c) 2026, IHMC Robotics Lab.
+// All rights reserved.
 
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree.
@@ -8,7 +11,7 @@
 namespace hydra {
 
 EnhancedPointcloudAdaptor::EnhancedPointcloudAdaptor(
-    const sensor_msgs::PointCloud2& cloud) {
+    const sensor_msgs::msg::PointCloud2& cloud) {
   for (const auto& field : cloud.fields) {
     if (field.name == "x") {
       VLOG(10) << "found x field: " << field;
@@ -35,13 +38,13 @@ cv::Vec3f EnhancedPointcloudAdaptor::position(const uint8_t* point_ptr) const {
 
 bool fillEnhancedPointcloudPacket(
     const PoseStatus lidar2cam,
-    const sensor_msgs::CameraInfoConstPtr& camera_info,
-    const sensor_msgs::PointCloud2ConstPtr& cloud,
+    const sensor_msgs::msg::CameraInfo::ConstSharedPtr& camera_info,
+    const sensor_msgs::msg::PointCloud2::ConstSharedPtr& cloud,
     const cv::Mat& color,
     const cv::Mat& label_image,
     const cv::Mat& panoptic_ids,
-    const semantic_inference_msgs::FeatureImage::ConstPtr& labels,
-    const semantic_inference_msgs::FeatureVectorsStamped::ConstPtr& relations,
+    const semantic_inference_msgs::msg::FeatureImage::ConstSharedPtr& labels,
+    const semantic_inference_msgs::msg::FeatureVectorsStamped::ConstSharedPtr& relations,
     const bool& undistort,
     EnhancedCloudInputPacket::Ptr& packet,
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr& debug_pointcloud) {
@@ -124,21 +127,21 @@ bool fillEnhancedPointcloudPacket(
 }
 
 Eigen::Vector3f projectPointcloudToImage(
-    const sensor_msgs::CameraInfoConstPtr& camera_info,
+    const sensor_msgs::msg::CameraInfo::ConstSharedPtr& camera_info,
     const PoseStatus& transform,
     const cv::Vec3f& point,
     const bool& undistort) {
   // Camera intrinsic parameters
-  float fx = camera_info->K[0];  // Focal length in x
-  float fy = camera_info->K[4];  // Focal length in y
-  float cx = camera_info->K[2];  // Optical center x
-  float cy = camera_info->K[5];  // Optical center y
+  float fx = camera_info->k[0];  // Focal length in x
+  float fy = camera_info->k[4];  // Focal length in y
+  float cx = camera_info->k[2];  // Optical center x
+  float cy = camera_info->k[5];  // Optical center y
 
   // Distortion coefficients (equidistant model)
-  double k1 = camera_info->D[0];  // k1
-  double k2 = camera_info->D[1];  // k2
-  double k3 = camera_info->D[2];  // k3
-  double k4 = camera_info->D[3];  // k4
+  double k1 = camera_info->d[0];  // k1
+  double k2 = camera_info->d[1];  // k2
+  double k3 = camera_info->d[2];  // k3
+  double k4 = camera_info->d[3];  // k4
 
   // Transform the point from world frame to camera frame
   Eigen::Vector4f pt_world(point(0), point(1), point(2), 1.0);

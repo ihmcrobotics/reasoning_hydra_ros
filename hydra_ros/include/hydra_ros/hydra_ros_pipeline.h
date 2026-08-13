@@ -38,29 +38,40 @@
 
 // Copyright (c) 2025, Autonomous Robots Lab, Norwegian University of Science and
 // Technology All rights reserved.
+//
+// Copyright (c) 2026, IHMC Robotics Lab.
+// All rights reserved.
 
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree.
 #pragma once
 
 #include <hydra/common/hydra_pipeline.h>
-#include <ros/ros.h>
+#include <ianvs/node_handle.h>
 
 #include <memory>
 #include <string>
 
-#include "hydra/navigation/navigation_module.h"
-#include "hydra/navigation/object_search_module.h"
-#include "hydra_ros/backend/ros_vlm_relationships.h"
 #include "hydra_ros/input/ros_input_module.h"
-#include "hydra_ros/navigation/ros_navigation_interface.h"
 
 namespace hydra {
 
-class BowSubscriber;
+class RosNavigationInterface;
+class RosVLMRelationships;
+class Ros2BackendPublisher;
+class Ros2VLMRelationships;
+class Ros2NavigationInterface;
 
 struct HydraRosConfig {
   bool enable_frontend_output = true;
+  bool enable_reasoning = false;
+  std::string active_object_edges_topic =
+      "/hydra_ros_node/backend/active_object_edges";
+  std::string vlm_relationship_service =
+      "/hydra_ros_node/backend/vlm_relationships";
+  std::string vlm_encodings_topic =
+      "/hydra_ros_node/backend/vlm_relationships/visual_relationships_encodings";
+  std::string vlm_labels_topic = "/semantic_inference/labeled_relationships";
   RosInputModule::Config input;
 };
 
@@ -68,7 +79,7 @@ void declare_config(HydraRosConfig& conf);
 
 class HydraRosPipeline : public HydraPipeline {
  public:
-  HydraRosPipeline(const ros::NodeHandle& nh, int robot_id);
+  explicit HydraRosPipeline(int robot_id, int config_verbosity = 1);
 
   virtual ~HydraRosPipeline();
 
@@ -77,17 +88,19 @@ class HydraRosPipeline : public HydraPipeline {
 
  protected:
   virtual void initFrontend();
-  virtual void initBackend(const ros::NodeHandle& bnh);
+  virtual void initBackend();
   virtual void initReconstruction();
   virtual void initLCD();
-  virtual void initNavigation(const ros::NodeHandle& bnh);
+  virtual void initNavigation();
 
  protected:
   const HydraRosConfig config_;
-  ros::NodeHandle nh_;
-  std::unique_ptr<BowSubscriber> bow_sub_;
-  RosVLMRelationships::Ptr vlm_relationships_;
-  RosNavigationInterface::Ptr navigation_interface_;
+  ianvs::NodeHandle nh_;
+  std::shared_ptr<RosVLMRelationships> vlm_relationships_;
+  std::shared_ptr<RosNavigationInterface> navigation_interface_;
+  std::shared_ptr<Ros2BackendPublisher> ros2_backend_publisher_;
+  std::shared_ptr<Ros2VLMRelationships> ros2_vlm_relationships_;
+  std::shared_ptr<Ros2NavigationInterface> ros2_navigation_interface_;
 };
 
 }  // namespace hydra

@@ -1,24 +1,21 @@
-<package>
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
   <name>hydra_ui</name>
   <version>0.0.1</version>
-  <description> hydra_ui </description>
+  <description>RViz 2 control panel for Hydra navigation and VLM services.</description>
   <maintainer email="albert.g.puigjaner@ntnu.no">Albert Gassol</maintainer>
   <license>BSD</license>
 
-  <author></author>
-
-  <buildtool_depend>catkin</buildtool_depend>
-
-  <build_depend>qtbase5-dev</build_depend>
-  <build_depend>rviz</build_depend>
-  <build_depend>semantic_inference_msgs</build_depend>
-
-  <run_depend>libqt5-core</run_depend>
-  <run_depend>libqt5-gui</run_depend>
-  <run_depend>libqt5-widgets</run_depend>
-  <run_depend>rviz</run_depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>pluginlib</depend>
+  <depend>rclcpp</depend>
+  <depend>rviz_common</depend>
+  <depend>semantic_inference_msgs</depend>
+  <depend>std_srvs</depend>
 
   <export>
-      <rviz plugin="${prefix}/plugin_description.xml"/>
+    <build_type>ament_cmake</build_type>
+    <rviz_common plugin="${prefix}/plugin_description.xml"/>
   </export>
 </package>

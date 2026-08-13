@@ -38,6 +38,9 @@
 
 // Copyright (c) 2025, Autonomous Robots Lab, Norwegian University of Science and
 // Technology All rights reserved.
+//
+// Copyright (c) 2026, IHMC Robotics Lab.
+// All rights reserved.
 
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree.
@@ -78,42 +81,49 @@ struct RosbagExtrinsics : public SensorExtrinsics {
           "rosbag");
 };
 
-struct RosIntrinsicsRegistration {
-  explicit RosIntrinsicsRegistration(const std::string& name);
-};
-
-struct RosCameraIntrinsics {
+struct RosCameraIntrinsics : Camera {
   struct Config : Sensor::Config {
     std::string topic = "";
   };
+
+  explicit RosCameraIntrinsics(const Config& config);
 
   static Camera::Config makeCameraConfig(const YAML::Node& data, const Config& config);
 
-  inline static const auto registration_ = RosIntrinsicsRegistration("camera_info");
+  inline static const auto registration_ =
+      config::RegistrationWithConfig<Sensor, RosCameraIntrinsics, Config>(
+          "camera_info");
 };
 
-struct RosCameraLidarIntrinsics {
+struct RosCameraLidarIntrinsics : CameraLidarFusion {
   struct Config : Sensor::Config {
     std::string topic = "";
   };
+
+  explicit RosCameraLidarIntrinsics(const Config& config);
 
   static CameraLidarFusion::Config makeCameraConfig(const YAML::Node& data,
                                                     const Config& config);
 
-  inline static const auto registration_ =
-      RosIntrinsicsRegistration("camera_lidar_fusion_info");
+  inline static const auto registration_ = config::RegistrationWithConfig<
+      Sensor,
+      RosCameraLidarIntrinsics,
+      Config>("camera_lidar_fusion_info");
 };
 
-struct RosbagCameraIntrinsics {
+struct RosbagCameraIntrinsics : Camera {
   struct Config : Sensor::Config {
     std::string topic = "";
     std::filesystem::path bag_path;
   };
 
+  explicit RosbagCameraIntrinsics(const Config& config);
+
   static Camera::Config makeCameraConfig(const YAML::Node& data, const Config& config);
 
   inline static const auto registration_ =
-      RosIntrinsicsRegistration("rosbag_camera_info");
+      config::RegistrationWithConfig<Sensor, RosbagCameraIntrinsics, Config>(
+          "rosbag_camera_info");
 };
 
 void declare_config(RosSensorExtrinsics::Config& config);

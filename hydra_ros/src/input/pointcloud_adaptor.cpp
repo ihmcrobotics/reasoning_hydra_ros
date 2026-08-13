@@ -80,39 +80,39 @@ DECLARE_FLOAT_PARSER(double)
 #undef DECLARE_FLOAT_PARSER
 #undef DECLARE_COLOR_PARSER
 
-using sensor_msgs::PointField;
+using sensor_msgs::msg::PointField;
 
 std::function<double(const uint8_t*)> initFloatParser(const PointField& field) {
   using namespace std::placeholders;
-  if (field.datatype == sensor_msgs::PointField::INT8) {
+  if (field.datatype == PointField::INT8) {
     LOG(ERROR) << "cannot parse float from " << field;
     return {};
   }
-  if (field.datatype == sensor_msgs::PointField::UINT8) {
+  if (field.datatype == PointField::UINT8) {
     LOG(ERROR) << "cannot parse float from " << field;
     return {};
   }
-  if (field.datatype == sensor_msgs::PointField::INT16) {
+  if (field.datatype == PointField::INT16) {
     LOG(ERROR) << "cannot parse float from " << field;
     return {};
   }
-  if (field.datatype == sensor_msgs::PointField::UINT16) {
+  if (field.datatype == PointField::UINT16) {
     LOG(ERROR) << "cannot parse float from " << field;
     return {};
   }
-  if (field.datatype == sensor_msgs::PointField::INT32) {
+  if (field.datatype == PointField::INT32) {
     LOG(ERROR) << "cannot parse float from " << field;
     return {};
   }
-  if (field.datatype == sensor_msgs::PointField::UINT32) {
+  if (field.datatype == PointField::UINT32) {
     LOG(ERROR) << "cannot parse float from " << field;
     return {};
   }
 
-  if (field.datatype == sensor_msgs::PointField::FLOAT32) {
+  if (field.datatype == PointField::FLOAT32) {
     return std::bind(&parseFloatFrom_float, _1, field.offset);
   }
-  if (field.datatype == sensor_msgs::PointField::FLOAT64) {
+  if (field.datatype == PointField::FLOAT64) {
     return std::bind(&parseFloatFrom_double, _1, field.offset);
   }
 
@@ -122,30 +122,30 @@ std::function<double(const uint8_t*)> initFloatParser(const PointField& field) {
 
 std::function<double(const uint8_t*)> initIntParser(const PointField& field) {
   using namespace std::placeholders;
-  if (field.datatype == sensor_msgs::PointField::INT8) {
+  if (field.datatype == PointField::INT8) {
     return std::bind(&parseIntFrom_int8_t, _1, field.offset);
   }
-  if (field.datatype == sensor_msgs::PointField::UINT8) {
+  if (field.datatype == PointField::UINT8) {
     return std::bind(&parseIntFrom_uint8_t, _1, field.offset);
   }
-  if (field.datatype == sensor_msgs::PointField::INT16) {
+  if (field.datatype == PointField::INT16) {
     return std::bind(&parseIntFrom_int16_t, _1, field.offset);
   }
-  if (field.datatype == sensor_msgs::PointField::UINT16) {
+  if (field.datatype == PointField::UINT16) {
     return std::bind(&parseIntFrom_uint16_t, _1, field.offset);
   }
-  if (field.datatype == sensor_msgs::PointField::INT32) {
+  if (field.datatype == PointField::INT32) {
     return std::bind(&parseIntFrom_int32_t, _1, field.offset);
   }
-  if (field.datatype == sensor_msgs::PointField::UINT32) {
+  if (field.datatype == PointField::UINT32) {
     return std::bind(&parseIntFrom_uint32_t, _1, field.offset);
   }
 
-  if (field.datatype == sensor_msgs::PointField::FLOAT32) {
+  if (field.datatype == PointField::FLOAT32) {
     LOG(ERROR) << "cannot parse int from " << field;
     return {};
   }
-  if (field.datatype == sensor_msgs::PointField::FLOAT64) {
+  if (field.datatype == PointField::FLOAT64) {
     LOG(ERROR) << "cannot parse int from " << field;
     return {};
   }
@@ -156,35 +156,35 @@ std::function<double(const uint8_t*)> initIntParser(const PointField& field) {
 
 std::function<cv::Vec3b(const uint8_t*)> initColorParser(const PointField& field) {
   using namespace std::placeholders;
-  if (field.datatype == sensor_msgs::PointField::INT8) {
+  if (field.datatype == PointField::INT8) {
     LOG(ERROR) << "cannot parse color from " << field;
     return {};
   }
-  if (field.datatype == sensor_msgs::PointField::UINT8) {
+  if (field.datatype == PointField::UINT8) {
     LOG(ERROR) << "cannot parse color from " << field;
     return {};
   }
-  if (field.datatype == sensor_msgs::PointField::INT16) {
+  if (field.datatype == PointField::INT16) {
     LOG(ERROR) << "cannot parse color from " << field;
     return {};
   }
-  if (field.datatype == sensor_msgs::PointField::UINT16) {
+  if (field.datatype == PointField::UINT16) {
     LOG(ERROR) << "cannot parse color from " << field;
     return {};
   }
-  if (field.datatype == sensor_msgs::PointField::INT32) {
+  if (field.datatype == PointField::INT32) {
     LOG(ERROR) << "cannot parse color from " << field;
     return {};
   }
-  if (field.datatype == sensor_msgs::PointField::FLOAT64) {
+  if (field.datatype == PointField::FLOAT64) {
     LOG(ERROR) << "cannot parse color from " << field;
     return {};
   }
 
-  if (field.datatype == sensor_msgs::PointField::UINT32) {
+  if (field.datatype == PointField::UINT32) {
     return std::bind(&parseColorFrom_uint32_t, _1, field.offset);
   }
-  if (field.datatype == sensor_msgs::PointField::FLOAT32) {
+  if (field.datatype == PointField::FLOAT32) {
     return std::bind(&parseColorFrom_float, _1, field.offset);
   }
 
@@ -192,7 +192,7 @@ std::function<cv::Vec3b(const uint8_t*)> initColorParser(const PointField& field
   return {};
 }
 
-PointcloudAdaptor::PointcloudAdaptor(const sensor_msgs::PointCloud2& cloud) {
+PointcloudAdaptor::PointcloudAdaptor(const sensor_msgs::msg::PointCloud2& cloud) {
   for (const auto& field : cloud.fields) {
     if (field.name == "x") {
       VLOG(10) << "found x field: " << field;
@@ -235,7 +235,7 @@ uint32_t PointcloudAdaptor::label(const uint8_t* point_ptr) const {
   return label_parser_(point_ptr);
 }
 
-bool fillPointcloudPacket(const sensor_msgs::PointCloud2& msg,
+bool fillPointcloudPacket(const sensor_msgs::msg::PointCloud2& msg,
                           CloudInputPacket& packet,
                           bool labels_required) {
   PointcloudAdaptor adaptor(msg);

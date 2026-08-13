@@ -40,6 +40,7 @@
 #include <hydra/common/global_info.h>
 
 #include "hydra_ros/utils/lookup_tf.h"
+#include <ianvs/node_handle.h>
 
 namespace hydra {
 
@@ -58,10 +59,12 @@ void declare_config(RosInputModule::Config& config) {
 RosInputModule::RosInputModule(const Config& config, const OutputQueue::Ptr& queue)
     : InputModule(config, queue),
       config(config),
-      nh_(ros::NodeHandle(config.ns)),
       have_first_pose_(false) {
-  buffer_.reset(new tf2_ros::Buffer(ros::Duration(config.tf_buffer_size_s)));
-  tf_listener_.reset(new tf2_ros::TransformListener(*buffer_));
+  auto nh = ianvs::NodeHandle::this_node(config.ns);
+  const auto cache_time = std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::duration<double>(config.tf_buffer_size_s));
+  buffer_ = std::make_unique<tf2_ros::Buffer>(nh.clock(), cache_time);
+  tf_listener_ = std::make_unique<tf2_ros::TransformListener>(*buffer_);
 }
 
 RosInputModule::~RosInputModule() = default;
@@ -78,8 +81,7 @@ PoseStatus RosInputModule::getBodyPose(uint64_t timestamp_ns) {
       config.tf_max_tries > 0 ? std::optional<size_t>(config.tf_max_tries)
                               : std::nullopt;
 
-  ros::Time curr_ros_time;
-  curr_ros_time.fromNSec(timestamp_ns);
+  rclcpp::Time curr_ros_time(timestamp_ns);
   const auto pose_status = lookupTransform(*buffer_,
                                            curr_ros_time,
                                            GlobalInfo::instance().getFrames().odom,

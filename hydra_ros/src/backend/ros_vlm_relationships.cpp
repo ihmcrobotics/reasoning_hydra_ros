@@ -1,260 +1,252 @@
-// Copyright (c) 2025, Autonomous Robots Lab, Norwegian University of Science and
-// Technology All rights reserved.
+// Copyright (c) 2026, IHMC Robotics Lab.
+// All rights reserved.
 
-// This source code is licensed under the BSD-style license found in the
-// LICENSE file in the root directory of this source tree.
 #include "hydra_ros/backend/ros_vlm_relationships.h"
 
+#include <geometry_msgs/msg/pose.hpp>
+#include <semantic_inference_msgs/msg/feature_vector.hpp>
+#include <vision_msgs/msg/bounding_box3_d.hpp>
+
+#include <Eigen/Geometry>
+#include <cctype>
+
 namespace hydra {
+namespace {
 
 int extractNumber(const std::string& input) {
-  std::string numberStr;
-  for (char c : input) {
-    if (std::isdigit(c)) {
-      numberStr += c;
-    } else if (!numberStr.empty()) {
-      break;  // Stop once digits end (assuming only one number)
+  std::string digits;
+  for (const char value : input) {
+    if (std::isdigit(static_cast<unsigned char>(value))) {
+      digits.push_back(value);
+    } else if (!digits.empty()) {
+      break;
     }
   }
 
-  if (!numberStr.empty()) {
-    return std::stoi(numberStr);
+  if (digits.empty()) {
+    throw std::runtime_error("No number found in room name: " + input);
   }
-
-  throw std::runtime_error("No number found in the string");
+  return std::stoi(digits);
 }
 
-void declare_config(RosVLMRelationships::Config& conf) {
-  using namespace config;
-  name("RosVLMRelationshipsConfig");
-  field(conf.default_prompt, "default_prompt");
-  field(conf.queue_size, "queue_size");
+vision_msgs::msg::BoundingBox3D makeBoundingBox(
+    const SemanticNodeAttributes& attributes) {
+  vision_msgs::msg::BoundingBox3D box;
+  box.center.position.x = attributes.bounding_box.world_P_center.x();
+  box.center.position.y = attributes.bounding_box.world_P_center.y();
+  box.center.position.z = attributes.bounding_box.world_P_center.z();
+  box.center.orientation.w = 1.0;
+  if (attributes.bounding_box.hasRotation()) {
+    const Eigen::Quaternionf orientation(
+        attributes.bounding_box.world_R_center);
+    box.center.orientation.x = orientation.x();
+    box.center.orientation.y = orientation.y();
+    box.center.orientation.z = orientation.z();
+    box.center.orientation.w = orientation.w();
+  }
+  box.size.x = attributes.bounding_box.dimensions.x();
+  box.size.y = attributes.bounding_box.dimensions.y();
+  box.size.z = attributes.bounding_box.dimensions.z();
+  return box;
 }
 
-RosVLMRelationships::RosVLMRelationships(
-    const ros::NodeHandle& nh,
-    const Config& config,
-    const InputQueue<BackendVLMLabelsInput::Ptr>::Ptr& vlm_labels_queue)
-    : config(config), nh_(nh), vlm_labels_queue_(vlm_labels_queue) {
-  service_ = nh_.advertiseService(
-      "vlm_relationships", &RosVLMRelationships::handleRequest, this);
-  labeled_relationships_sub_ =
-      nh_.subscribe("labeled_relationships",
-                    config.queue_size,
-                    &RosVLMRelationships::labeledRelationshipsCallback,
-                    this);
-  relationships_pub_ = nh_.advertise<hydra_msgs::VisualRelationshipsEncodings>(
-      "visual_relationships_encodings", config.queue_size, false);
+geometry_msgs::msg::Pose makePose(const SemanticNodeAttributes& attributes) {
+  geometry_msgs::msg::Pose pose;
+  pose.position.x = attributes.position.x();
+  pose.position.y = attributes.position.y();
+  pose.position.z = attributes.position.z();
+  pose.orientation.w = 1.0;
+  return pose;
 }
 
-bool RosVLMRelationships::handleRequest(hydra_msgs::VLMRelationship::Request& req,
-                                        hydra_msgs::VLMRelationship::Response& res) {
-  // Push the request to the queue
-  if (relationships_pub_.getNumSubscribers() <= 0) {
-    res.success = false;
+semantic_inference_msgs::msg::FeatureVector makeFeature(
+    const Eigen::MatrixXf& feature) {
+  semantic_inference_msgs::msg::FeatureVector message;
+  message.rows = feature.rows();
+  message.cols = feature.cols();
+  message.data.reserve(feature.size());
+  for (int row = 0; row < feature.rows(); ++row) {
+    for (int col = 0; col < feature.cols(); ++col) {
+      message.data.push_back(feature(row, col));
+    }
+  }
+  return message;
+}
+
+bool belongsToRoom(const DynamicSceneGraph& graph,
+                   const SceneGraphNode& node,
+                   int requested_room) {
+  if (requested_room < 0) {
     return true;
   }
-  res.success = true;
-  if (!request_queue_.push(
-          {!req.prompt.empty() ? req.prompt : config.default_prompt, req.room})) {
-    LOG(WARNING) << "Request queue is full!";
-    res.success = false;
+  if (node.parents().empty()) {
+    return false;
   }
-  return true;
+  const auto place_id = *node.parents().begin();
+  if (!graph.hasNode(place_id)) {
+    return false;
+  }
+  const auto room_id = graph.getNode(place_id).getParent();
+  if (!room_id || !graph.hasNode(*room_id)) {
+    return false;
+  }
+  try {
+    return extractNumber(
+               graph.getNode(*room_id).attributes<RoomNodeAttributes>().name) ==
+           requested_room;
+  } catch (const std::runtime_error&) {
+    return false;
+  }
 }
 
-void RosVLMRelationships::call(uint64_t timestamp_ns,
-                               const DynamicSceneGraph& graph,
-                               const kimera_pgmo::DeformationGraph& dgraph) {
-  if (relationships_pub_.getNumSubscribers() <= 0 || !request_queue_.poll()) {
+}  // namespace
+
+Ros2VLMRelationships::Ros2VLMRelationships(
+    ianvs::NodeHandle nh,
+    Config config,
+    const InputQueue<BackendVLMLabelsInput::Ptr>::Ptr& labels_queue)
+    : config_(std::move(config)),
+      labels_queue_(labels_queue),
+      request_queue_(config_.queue_size),
+      service_(nh.create_service<hydra_msgs::srv::VLMRelationship>(
+          config_.service, &Ros2VLMRelationships::handleRequest, this)),
+      labels_sub_(nh.create_subscription<hydra_msgs::msg::LabeledRelationships>(
+          config_.labels_topic,
+          rclcpp::QoS(config_.queue_size),
+          &Ros2VLMRelationships::handleLabels,
+          this)),
+      encodings_pub_(
+          nh.create_publisher<hydra_msgs::msg::VisualRelationshipsEncodings>(
+              config_.encodings_topic, rclcpp::QoS(config_.queue_size))) {}
+
+void Ros2VLMRelationships::handleRequest(
+    const std::shared_ptr<hydra_msgs::srv::VLMRelationship::Request> request,
+    std::shared_ptr<hydra_msgs::srv::VLMRelationship::Response> response) {
+  if (encodings_pub_->get_subscription_count() == 0) {
+    response->success = false;
     return;
   }
-  const auto& request = request_queue_.front();
+  response->success = request_queue_.push(
+      {request->prompt.empty() ? config_.default_prompt : request->prompt,
+       request->room});
+  if (!response->success) {
+    LOG(WARNING) << "VLM relationship request queue is full";
+  }
+}
+
+void Ros2VLMRelationships::call(
+    uint64_t timestamp_ns,
+    const DynamicSceneGraph& graph,
+    const kimera_pgmo::DeformationGraph& /*dgraph*/) {
+  if (encodings_pub_->get_subscription_count() == 0 ||
+      !request_queue_.poll(0)) {
+    return;
+  }
+
+  const auto request = request_queue_.pop();
   if (request.prompt == "reset" || request.prompt == "RESET") {
     resetLabels(graph, timestamp_ns);
-    request_queue_.pop();
     return;
   }
-  hydra_msgs::VisualRelationshipsEncodings relationship_encodings;
-  const auto& object_layer = graph.getLayer(DsgLayers::OBJECTS);
-  const auto& object_layer_edges = object_layer.edges();
-  for (const auto& [edge_key, edge] : object_layer_edges) {
-    const auto& source_node = object_layer.getNode(edge.source);
-    const auto& target_node = object_layer.getNode(edge.target);
-    if (request.room_id >= 0) {
-      const auto& source_parents = source_node.parents();
-      const auto& target_parents = target_node.parents();
-      if (source_parents.empty() || target_parents.empty()) {
-        continue;
-      }
-      if (!graph.hasNode(*source_parents.begin()) ||
-          !graph.hasNode(*target_parents.begin())) {
-        continue;
-      }
-      const auto& source_parent = graph.getNode(*source_parents.begin());
-      const auto& target_parent = graph.getNode(*target_parents.begin());
-      const auto& source_room_id = source_parent.getParent();
-      const auto& target_room_id = target_parent.getParent();
-      if (!source_room_id || !target_room_id) {
-        continue;
-      }
-      int source_room_number = extractNumber(
-          graph.getNode(*source_room_id).attributes<RoomNodeAttributes>().name);
-      int target_room_number = extractNumber(
-          graph.getNode(*target_room_id).attributes<RoomNodeAttributes>().name);
-      if (source_room_number != request.room_id &&
-          target_room_number != request.room_id) {
-        continue;
-      }
-    }
-    // Add the relationship to the message
-    semantic_inference_msgs::FeatureVector source_feature_msg;
-    semantic_inference_msgs::FeatureVector target_feature_msg;
-    const Eigen::MatrixXf& source_feature = edge.info->feature(edge.source);
-    const Eigen::MatrixXf& target_feature = edge.info->feature(edge.target);
-    if (!source_feature.size() || !target_feature.size()) {
+
+  hydra_msgs::msg::VisualRelationshipsEncodings message;
+  const auto& objects = graph.getLayer(DsgLayers::OBJECTS);
+  for (const auto& [key, edge] : objects.edges()) {
+    (void)key;
+    const auto& source = objects.getNode(edge.source);
+    const auto& target = objects.getNode(edge.target);
+    if (!belongsToRoom(graph, source, request.room_id) &&
+        !belongsToRoom(graph, target, request.room_id)) {
       continue;
     }
-    source_feature_msg.rows = source_feature.rows();
-    source_feature_msg.cols = source_feature.cols();
-    target_feature_msg.rows = target_feature.rows();
-    target_feature_msg.cols = target_feature.cols();
 
-    // Map the matrix to the message (vector<float>)
-    for (int i = 0; i < source_feature.rows(); ++i) {
-      for (int j = 0; j < source_feature.cols(); ++j) {
-        source_feature_msg.data.push_back(source_feature(i, j));
-        target_feature_msg.data.push_back(target_feature(i, j));
-      }
+    const auto& source_feature = edge.info->feature(edge.source);
+    const auto& target_feature = edge.info->feature(edge.target);
+    if (source_feature.size() == 0 || target_feature.size() == 0) {
+      continue;
     }
-    relationship_encodings.features.feature.push_back(source_feature_msg);
-    relationship_encodings.features.feature.push_back(target_feature_msg);
 
-    const auto& source_attributes = source_node.attributes<SemanticNodeAttributes>();
-    const auto& target_attributes = target_node.attributes<SemanticNodeAttributes>();
+    message.features.feature.push_back(makeFeature(source_feature));
+    message.features.feature.push_back(makeFeature(target_feature));
+    message.features.ids.insert(message.features.ids.end(),
+                                {edge.source, edge.target, edge.target, edge.source});
 
-    // Nodes classes
-    std::string label_source = source_attributes.name;
-    std::string label_target = target_attributes.name;
-    label_source =
-        label_source.empty() ? NodeSymbol(source_node.id).getLabel() : label_source;
-    label_target =
-        label_target.empty() ? NodeSymbol(target_node.id).getLabel() : label_target;
+    const auto& source_attributes =
+        source.attributes<SemanticNodeAttributes>();
+    const auto& target_attributes =
+        target.attributes<SemanticNodeAttributes>();
+    const auto source_label = source_attributes.name.empty()
+                                  ? NodeSymbol(source.id).getLabel()
+                                  : source_attributes.name;
+    const auto target_label = target_attributes.name.empty()
+                                  ? NodeSymbol(target.id).getLabel()
+                                  : target_attributes.name;
+    message.object_classes.insert(message.object_classes.end(),
+                                  {source_label, target_label,
+                                   target_label, source_label});
 
-    // Nodes poses
-    geometry_msgs::Pose source_point;
-    geometry_msgs::Pose target_point;
-    source_point.position.x = source_attributes.position.x();
-    source_point.position.y = source_attributes.position.y();
-    source_point.position.z = source_attributes.position.z();
-    target_point.position.x = target_attributes.position.x();
-    target_point.position.y = target_attributes.position.y();
-    target_point.position.z = target_attributes.position.z();
+    const auto source_pose = makePose(source_attributes);
+    const auto target_pose = makePose(target_attributes);
+    message.object_poses.insert(message.object_poses.end(),
+                                {source_pose, target_pose,
+                                 target_pose, source_pose});
 
-    // Nodes BBs
-    vision_msgs::BoundingBox3D source_bb;
-    vision_msgs::BoundingBox3D target_bb;
-
-    source_bb.center.position.x = source_attributes.bounding_box.world_P_center.x();
-    source_bb.center.position.y = source_attributes.bounding_box.world_P_center.y();
-    source_bb.center.position.z = source_attributes.bounding_box.world_P_center.z();
-    if (source_attributes.bounding_box.hasRotation()) {
-      Eigen::Quaternionf q(source_attributes.bounding_box.world_R_center);
-      source_bb.center.orientation.x = q.x();
-      source_bb.center.orientation.y = q.y();
-      source_bb.center.orientation.z = q.z();
-      source_bb.center.orientation.w = q.w();
-    } else {
-      source_bb.center.orientation.w = 1.0;
-    }
-    source_bb.size.x = source_attributes.bounding_box.dimensions.x();
-    source_bb.size.y = source_attributes.bounding_box.dimensions.y();
-    source_bb.size.z = source_attributes.bounding_box.dimensions.z();
-
-    target_bb.center.position.x = target_attributes.bounding_box.world_P_center.x();
-    target_bb.center.position.y = target_attributes.bounding_box.world_P_center.y();
-    target_bb.center.position.z = target_attributes.bounding_box.world_P_center.z();
-    if (target_attributes.bounding_box.hasRotation()) {
-      Eigen::Quaternionf q(target_attributes.bounding_box.world_R_center);
-      target_bb.center.orientation.x = q.x();
-      target_bb.center.orientation.y = q.y();
-      target_bb.center.orientation.z = q.z();
-      target_bb.center.orientation.w = q.w();
-    } else {
-      target_bb.center.orientation.w = 1.0;
-    }
-    target_bb.size.x = target_attributes.bounding_box.dimensions.x();
-    target_bb.size.y = target_attributes.bounding_box.dimensions.y();
-    target_bb.size.z = target_attributes.bounding_box.dimensions.z();
-
-    relationship_encodings.object_bounding_boxes.boxes.push_back(source_bb);
-    relationship_encodings.object_bounding_boxes.boxes.push_back(target_bb);
-    relationship_encodings.object_bounding_boxes.boxes.push_back(target_bb);
-    relationship_encodings.object_bounding_boxes.boxes.push_back(source_bb);
-
-    relationship_encodings.object_poses.push_back(source_point);
-    relationship_encodings.object_poses.push_back(target_point);
-    relationship_encodings.object_poses.push_back(target_point);
-    relationship_encodings.object_poses.push_back(source_point);
-
-    relationship_encodings.object_classes.push_back(label_source);
-    relationship_encodings.object_classes.push_back(label_target);
-    relationship_encodings.object_classes.push_back(label_target);
-    relationship_encodings.object_classes.push_back(label_source);
-
-    relationship_encodings.features.ids.push_back(edge.source);
-    relationship_encodings.features.ids.push_back(edge.target);
-    relationship_encodings.features.ids.push_back(edge.target);
-    relationship_encodings.features.ids.push_back(edge.source);
+    const auto source_box = makeBoundingBox(source_attributes);
+    const auto target_box = makeBoundingBox(target_attributes);
+    auto& boxes = message.object_bounding_boxes.boxes;
+    boxes.insert(boxes.end(),
+                 {source_box, target_box, target_box, source_box});
   }
 
-  relationship_encodings.prompt = request.prompt;
-  request_queue_.pop();
-  if (relationship_encodings.features.ids.empty()) {
+  if (message.features.ids.empty()) {
     return;
   }
-  relationship_encodings.features.header.stamp = ros::Time::now();
-  relationships_pub_.publish(relationship_encodings);
+  message.prompt = request.prompt;
+  message.features.header.stamp = rclcpp::Time(timestamp_ns);
+  encodings_pub_->publish(message);
 }
 
-void RosVLMRelationships::labeledRelationshipsCallback(
-    const hydra_msgs::LabeledRelationships::ConstPtr& relationships) {
-  // Loop over the labels of the relationships and add them to the queue
-  auto vlm_labels = std::make_shared<VLMLabels>();
-  for (size_t i = 0; i < relationships->labels.size(); ++i) {
-    // Add the relationship to the queue
-    vlm_labels->labels.push_back(relationships->labels[i]);
-    vlm_labels->edge_ids.push_back(std::make_pair(relationships->node_ids[2 * i],
-                                                  relationships->node_ids[2 * i + 1]));
-  }
-  // Push the relationships to the queue
-  if (vlm_labels->labels.empty()) {
+void Ros2VLMRelationships::handleLabels(
+    hydra_msgs::msg::LabeledRelationships::ConstSharedPtr relationships) {
+  if (relationships->node_ids.size() < 2 * relationships->labels.size()) {
+    LOG(ERROR) << "Ignoring malformed labeled relationships message";
     return;
   }
-  auto vlm_labels_input = std::make_shared<BackendVLMLabelsInput>();
-  vlm_labels_input->vlm_labels = vlm_labels;
-  vlm_labels_input->timestamp_ns = relationships->header.stamp.toNSec();
-  if (!vlm_labels_queue_->push(vlm_labels_input)) {
-    LOG(WARNING) << "VLM labels queue is full!";
+
+  auto labels = std::make_shared<VLMLabels>();
+  for (size_t index = 0; index < relationships->labels.size(); ++index) {
+    labels->labels.push_back(relationships->labels[index]);
+    labels->edge_ids.emplace_back(relationships->node_ids[2 * index],
+                                  relationships->node_ids[2 * index + 1]);
+  }
+  if (labels->labels.empty()) {
+    return;
+  }
+
+  auto input = std::make_shared<BackendVLMLabelsInput>();
+  input->vlm_labels = labels;
+  input->timestamp_ns = rclcpp::Time(relationships->header.stamp).nanoseconds();
+  if (!labels_queue_->push(input)) {
+    LOG(WARNING) << "VLM labels queue is full";
   }
 }
 
-void RosVLMRelationships::resetLabels(const DynamicSceneGraph& graph,
-                                      uint64_t timestamp_ns) {
-  auto vlm_labels = std::make_shared<VLMLabels>();
-  const auto& object_layer = graph.getLayer(DsgLayers::OBJECTS);
-  const auto& object_layer_edges = object_layer.edges();
-  for (const auto& [edge_key, edge] : object_layer_edges) {
-    vlm_labels->labels.push_back("");
-    vlm_labels->labels.push_back("");
-    vlm_labels->edge_ids.push_back(std::make_pair(edge.source, edge.target));
-    vlm_labels->edge_ids.push_back(std::make_pair(edge.target, edge.source));
+void Ros2VLMRelationships::resetLabels(const DynamicSceneGraph& graph,
+                                       uint64_t timestamp_ns) {
+  auto labels = std::make_shared<VLMLabels>();
+  for (const auto& [key, edge] : graph.getLayer(DsgLayers::OBJECTS).edges()) {
+    (void)key;
+    labels->labels.insert(labels->labels.end(), {"", ""});
+    labels->edge_ids.emplace_back(edge.source, edge.target);
+    labels->edge_ids.emplace_back(edge.target, edge.source);
   }
-  auto vlm_labels_input = std::make_shared<BackendVLMLabelsInput>();
-  vlm_labels_input->vlm_labels = vlm_labels;
-  vlm_labels_input->timestamp_ns = timestamp_ns;
-  if (!vlm_labels_queue_->push(vlm_labels_input)) {
-    LOG(WARNING) << "VLM labels queue is full!";
+
+  auto input = std::make_shared<BackendVLMLabelsInput>();
+  input->vlm_labels = labels;
+  input->timestamp_ns = timestamp_ns;
+  if (!labels_queue_->push(input)) {
+    LOG(WARNING) << "VLM labels queue is full";
   }
 }
+
 }  // namespace hydra

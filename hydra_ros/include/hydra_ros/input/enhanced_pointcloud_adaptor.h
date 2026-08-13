@@ -1,5 +1,8 @@
 // Copyright (c) 2025, Autonomous Robots Lab, Norwegian University of Science and
 // Technology All rights reserved.
+//
+// Copyright (c) 2026, IHMC Robotics Lab.
+// All rights reserved.
 
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree.
@@ -10,10 +13,10 @@
 #include <hydra/input/sensor_input_packet.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
-#include <semantic_inference_msgs/FeatureImage.h>
-#include <semantic_inference_msgs/FeatureVectorsStamped.h>
-#include <sensor_msgs/CameraInfo.h>
-#include <sensor_msgs/PointCloud2.h>
+#include <semantic_inference_msgs/msg/feature_image.hpp>
+#include <semantic_inference_msgs/msg/feature_vectors_stamped.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
 
 #include <cmath>
 #include <functional>
@@ -26,7 +29,7 @@ namespace hydra {
 
 class EnhancedPointcloudAdaptor {
  public:
-  explicit EnhancedPointcloudAdaptor(const sensor_msgs::PointCloud2& cloud);
+  explicit EnhancedPointcloudAdaptor(const sensor_msgs::msg::PointCloud2& cloud);
 
   bool valid() const;
 
@@ -42,19 +45,19 @@ class EnhancedPointcloudAdaptor {
 
 bool fillEnhancedPointcloudPacket(
     const PoseStatus lidar2cam,
-    const sensor_msgs::CameraInfoConstPtr& camera_info,
-    const sensor_msgs::PointCloud2ConstPtr& cloud,
+    const sensor_msgs::msg::CameraInfo::ConstSharedPtr& camera_info,
+    const sensor_msgs::msg::PointCloud2::ConstSharedPtr& cloud,
     const cv::Mat& color,
     const cv::Mat& label_image,
     const cv::Mat& panoptic_ids,
-    const semantic_inference_msgs::FeatureImage::ConstPtr& labels,
-    const semantic_inference_msgs::FeatureVectorsStamped::ConstPtr& relations,
+    const semantic_inference_msgs::msg::FeatureImage::ConstSharedPtr& labels,
+    const semantic_inference_msgs::msg::FeatureVectorsStamped::ConstSharedPtr& relations,
     const bool& undistort,
     EnhancedCloudInputPacket::Ptr& packet,
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr& debug_pointcloud);
 
 Eigen::Vector3f projectPointcloudToImage(
-    const sensor_msgs::CameraInfoConstPtr& camera_info,
+    const sensor_msgs::msg::CameraInfo::ConstSharedPtr& camera_info,
     const PoseStatus& transform,
     const cv::Vec3f& point,
     const bool& undistort);

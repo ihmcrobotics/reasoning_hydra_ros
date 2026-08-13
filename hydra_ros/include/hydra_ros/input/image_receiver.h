@@ -38,6 +38,9 @@
 
 // Copyright (c) 2025, Autonomous Robots Lab, Norwegian University of Science and
 // Technology All rights reserved.
+//
+// Copyright (c) 2026, IHMC Robotics Lab.
+// All rights reserved.
 
 // This source code is licensed under the BSD-style license found in the
 // LICENSE file in the root directory of this source tree.
@@ -46,16 +49,17 @@
 #include <config_utilities/factory.h>
 #include <hydra/input/data_receiver.h>
 #include <hydra/input/input_conversion.h>
-#include <image_transport/image_transport.h>
-#include <image_transport/subscriber_filter.h>
+#include <image_transport/image_transport.hpp>
+#include <image_transport/subscriber_filter.hpp>
 #include <message_filters/subscriber.h>
 #include <message_filters/sync_policies/approximate_time.h>
-#include <ros/ros.h>
-#include <semantic_inference_msgs/FeatureImage.h>
-#include <semantic_inference_msgs/FeatureVectorStamped.h>
-#include <semantic_inference_msgs/FeatureVectorsStamped.h>
-#include <sensor_msgs/Image.h>
-#include <std_srvs/Trigger.h>
+#include <rclcpp/rclcpp.hpp>
+#include <semantic_inference_msgs/msg/feature_image.hpp>
+#include <semantic_inference_msgs/msg/feature_vector_stamped.hpp>
+#include <semantic_inference_msgs/msg/feature_vectors_stamped.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
+#include <sensor_msgs/msg/image.hpp>
+#include <std_srvs/srv/trigger.hpp>
 
 #include <memory>
 #include <opencv2/opencv.hpp>
@@ -64,27 +68,15 @@
 
 namespace hydra {
 
-struct ImageSubscriber {
-  ImageSubscriber();
-
-  ImageSubscriber(const ros::NodeHandle& nh,
-                  const std::string& camera_name,
-                  const std::string& image_name = "image_raw",
-                  uint32_t queue_size = 1);
-
-  std::shared_ptr<image_transport::ImageTransport> transport;
-  std::shared_ptr<image_transport::SubscriberFilter> sub;
-};
-
 class ImageReceiver : public DataReceiver {
  public:
   using SyncPolicy = message_filters::sync_policies::ApproximateTime<
-      sensor_msgs::Image,
-      sensor_msgs::Image,
-      sensor_msgs::Image,
-      semantic_inference_msgs::FeatureVectorStamped,
-      semantic_inference_msgs::FeatureImage,
-      semantic_inference_msgs::FeatureVectorsStamped>;
+      sensor_msgs::msg::Image,
+      sensor_msgs::msg::Image,
+      sensor_msgs::msg::Image,
+      semantic_inference_msgs::msg::FeatureVectorStamped,
+      semantic_inference_msgs::msg::FeatureImage,
+      semantic_inference_msgs::msg::FeatureVectorsStamped>;
   using Synchronizer = message_filters::Synchronizer<SyncPolicy>;
 
   struct Config : DataReceiver::Config {
@@ -103,35 +95,36 @@ class ImageReceiver : public DataReceiver {
   bool initImpl() override;
 
  private:
-  bool toggleProcessingService(std_srvs::Trigger::Request& req,
-                               std_srvs::Trigger::Response& res);
+  void toggleProcessingService(
+      const std::shared_ptr<std_srvs::srv::Trigger::Request> req,
+      std::shared_ptr<std_srvs::srv::Trigger::Response> res);
   void callback(
-      const sensor_msgs::ImageConstPtr& color,
-      const sensor_msgs::ImageConstPtr& depth,
-      const sensor_msgs::ImageConstPtr& panoptic_ids,
-      const semantic_inference_msgs::FeatureVectorStamped::ConstPtr& features,
-      const semantic_inference_msgs::FeatureImage::ConstPtr& labels,
-      const semantic_inference_msgs::FeatureVectorsStamped::ConstPtr& relations);
-  void callbackCameraInfo(const sensor_msgs::CameraInfoConstPtr& msg);
+      const sensor_msgs::msg::Image::ConstSharedPtr& color,
+      const sensor_msgs::msg::Image::ConstSharedPtr& depth,
+      const sensor_msgs::msg::Image::ConstSharedPtr& panoptic_ids,
+      const semantic_inference_msgs::msg::FeatureVectorStamped::ConstSharedPtr& features,
+      const semantic_inference_msgs::msg::FeatureImage::ConstSharedPtr& labels,
+      const semantic_inference_msgs::msg::FeatureVectorsStamped::ConstSharedPtr& relations);
+  void callbackCameraInfo(
+      const sensor_msgs::msg::CameraInfo::ConstSharedPtr& msg);
   void processLabels(
       const cv::Mat& panoptic_ids,
-      const semantic_inference_msgs::FeatureImage::ConstPtr& labels,
+      const semantic_inference_msgs::msg::FeatureImage::ConstSharedPtr& labels,
       ImageInputPacket::Ptr& packet,
-      const semantic_inference_msgs::FeatureVectorsStamped::ConstPtr& relations) const;
+      const semantic_inference_msgs::msg::FeatureVectorsStamped::ConstSharedPtr& relations) const;
 
-  message_filters::Subscriber<sensor_msgs::Image> color_sub_;
-  message_filters::Subscriber<sensor_msgs::Image> depth_sub_;
-  message_filters::Subscriber<sensor_msgs::Image> panoptic_sub_;
-  message_filters::Subscriber<semantic_inference_msgs::FeatureVectorStamped>
+  message_filters::Subscriber<sensor_msgs::msg::Image> color_sub_;
+  message_filters::Subscriber<sensor_msgs::msg::Image> depth_sub_;
+  message_filters::Subscriber<sensor_msgs::msg::Image> panoptic_sub_;
+  message_filters::Subscriber<semantic_inference_msgs::msg::FeatureVectorStamped>
       feature_sub_;
-  message_filters::Subscriber<semantic_inference_msgs::FeatureImage> label_sub_;
-  message_filters::Subscriber<semantic_inference_msgs::FeatureVectorsStamped>
+  message_filters::Subscriber<semantic_inference_msgs::msg::FeatureImage> label_sub_;
+  message_filters::Subscriber<semantic_inference_msgs::msg::FeatureVectorsStamped>
       relations_sub_;
-  ros::Subscriber camera_info_sub_;
-  ros::NodeHandle nh_;
+  rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_sub_;
   std::unique_ptr<Synchronizer> synchronizer_;
   std::atomic<bool> processing_enabled_{true};
-  ros::ServiceServer enable_processing_service_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr enable_processing_service_;
 
   inline static const auto registration_ =
       config::RegistrationWithConfig<DataReceiver,

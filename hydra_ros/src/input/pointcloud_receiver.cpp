@@ -39,22 +39,27 @@
 #include <hydra/common/global_info.h>
 
 #include "hydra_ros/input/pointcloud_adaptor.h"
+#include <ianvs/node_handle.h>
 
 namespace hydra {
 
 PointcloudReceiver::PointcloudReceiver(const Config& config, size_t sensor_id)
-    : DataReceiver(config, sensor_id), nh_(config.ns) {}
+    : DataReceiver(config, sensor_id), config(config) {}
 
 PointcloudReceiver::~PointcloudReceiver() {}
 
 bool PointcloudReceiver::initImpl() {
-  cloud_sub_ = nh_.subscribe(
-      "pointcloud", config.queue_size, &PointcloudReceiver::callback, this);
+  auto nh = ianvs::NodeHandle::this_node(config.ns);
+  cloud_sub_ = nh.create_subscription<sensor_msgs::msg::PointCloud2>(
+      "pointcloud",
+      rclcpp::SensorDataQoS().keep_last(config.queue_size),
+      std::bind(&PointcloudReceiver::callback, this, std::placeholders::_1));
   return true;
 }
 
-void PointcloudReceiver::callback(const sensor_msgs::PointCloud2& msg) {
-  const auto timestamp_ns = msg.header.stamp.toNSec();
+void PointcloudReceiver::callback(
+    const sensor_msgs::msg::PointCloud2::ConstSharedPtr& msg) {
+  const auto timestamp_ns = rclcpp::Time(msg->header.stamp).nanoseconds();
   VLOG(5) << "[Hydra Reconstruction] Got raw pointcloud input @ " << timestamp_ns
           << " [ns]";
 
@@ -63,10 +68,10 @@ void PointcloudReceiver::callback(const sensor_msgs::PointCloud2& msg) {
   }
 
   auto packet = std::make_shared<CloudInputPacket>(timestamp_ns, sensor_id_);
-  fillPointcloudPacket(msg, *packet, false);
+  fillPointcloudPacket(*msg, *packet, false);
   // TODO(nathan) this is brittle, but at least handles kitti
   packet->in_world_frame =
-      msg.header.frame_id == GlobalInfo::instance().getFrames().odom;
+      msg->header.frame_id == GlobalInfo::instance().getFrames().odom;
   queue.push(packet);
 }
 

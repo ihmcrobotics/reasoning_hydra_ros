@@ -34,7 +34,8 @@
  * -------------------------------------------------------------------------- */
 #pragma once
 #include <hydra/input/input_module.h>
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
+#include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 
 #include <memory>
@@ -70,7 +71,6 @@ class RosInputModule : public InputModule {
   PoseStatus getBodyPose(uint64_t timestamp_ns) override;
 
  protected:
-  ros::NodeHandle nh_;
   bool have_first_pose_;
   std::unique_ptr<tf2_ros::Buffer> buffer_;
   std::unique_ptr<tf2_ros::TransformListener> tf_listener_;

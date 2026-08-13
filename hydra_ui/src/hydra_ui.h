@@ -1,36 +1,27 @@
 #pragma once
 
-#include <ros/ros.h>
-#include <semantic_inference_msgs/NavigationPrompt.h>
-#include <std_srvs/Empty.h>
-#include <std_srvs/Trigger.h>
-#include <stdio.h>
+#include <memory>
 
-#include <string>
-
-#ifndef Q_MOC_RUN
-#include <rviz/panel.h>
-
-#include <QHBoxLayout>
-#include <QLabel>
 #include <QLineEdit>
-#include <QPainter>
 #include <QPushButton>
-#include <QTimer>
-#include <QVBoxLayout>
-#endif
 
-class QLineEdit;
-class QPushButton;
+#include <rclcpp/rclcpp.hpp>
+#include <rviz_common/config.hpp>
+#include <rviz_common/panel.hpp>
+#include <semantic_inference_msgs/srv/navigation_prompt.hpp>
+#include <std_srvs/srv/empty.hpp>
+#include <std_srvs/srv/trigger.hpp>
 
 namespace hydra_ui {
-class HydraPanel : public rviz::Panel {
+
+class HydraPanel : public rviz_common::Panel {
   Q_OBJECT
 
  public:
-  explicit HydraPanel(QWidget* parent = 0);
-  virtual void load(const rviz::Config& config);
-  virtual void save(rviz::Config config) const;
+  explicit HydraPanel(QWidget* parent = nullptr);
+  void onInitialize() override;
+  void load(const rviz_common::Config& config) override;
+  void save(rviz_common::Config config) const override;
 
  public Q_SLOTS:
   void onFindNextObjectClick();
@@ -43,42 +34,39 @@ class HydraPanel : public rviz::Panel {
   void onRepeatLastVLMClick();
   void onStopVLMClick();
   void onSendTaskClick();
- protected Q_SLOTS:
 
- protected:
+ private:
+  using Empty = std_srvs::srv::Empty;
+  using Trigger = std_srvs::srv::Trigger;
+  using NavigationPrompt = semantic_inference_msgs::srv::NavigationPrompt;
+
+  void callEmpty(const rclcpp::Client<Empty>::SharedPtr& client,
+                 const char* service_name);
+
   QPushButton* button_find_next_object;
-  ros::ServiceClient hydra_client_find_next_object;
-
   QPushButton* button_publish_waypoints;
-  ros::ServiceClient hydra_client_publish_waypoints;
-
   QPushButton* button_clear_navigation;
-  ros::ServiceClient hydra_client_clear_navigation;
-
   QPushButton* button_vlm_process_next;
-  ros::ServiceClient hydra_client_vlm_process_next;
-
   QPushButton* button_vlm_publish_current;
-  ros::ServiceClient hydra_client_vlm_publish_current;
-
   QPushButton* button_reset_mesh;
-  ros::ServiceClient hydra_client_reset_mesh;
-
   QPushButton* button_toggle_processing;
-  ros::ServiceClient hydra_client_toggle_processing;
-
   QPushButton* button_repeat_last_vlm;
-  ros::ServiceClient hydra_client_repeat_last_vlm;
-
   QPushButton* button_stop_vlm;
-  ros::ServiceClient hydra_client_stop_vlm;
-
   QLineEdit* prompt_input;
   QLineEdit* room_input;
   QPushButton* button_send_task;
-  ros::ServiceClient hydra_client_send_task;
 
-  ros::NodeHandle nh;
+  rclcpp::Node::SharedPtr node_;
+  rclcpp::Client<Empty>::SharedPtr hydra_client_find_next_object;
+  rclcpp::Client<Empty>::SharedPtr hydra_client_publish_waypoints;
+  rclcpp::Client<Empty>::SharedPtr hydra_client_clear_navigation;
+  rclcpp::Client<Empty>::SharedPtr hydra_client_vlm_process_next;
+  rclcpp::Client<Empty>::SharedPtr hydra_client_vlm_publish_current;
+  rclcpp::Client<Empty>::SharedPtr hydra_client_reset_mesh;
+  rclcpp::Client<Trigger>::SharedPtr hydra_client_toggle_processing;
+  rclcpp::Client<Empty>::SharedPtr hydra_client_repeat_last_vlm;
+  rclcpp::Client<Empty>::SharedPtr hydra_client_stop_vlm;
+  rclcpp::Client<NavigationPrompt>::SharedPtr hydra_client_send_task;
 };
 
 }  // namespace hydra_ui
