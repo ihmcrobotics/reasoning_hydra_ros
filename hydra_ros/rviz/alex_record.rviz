@@ -344,7 +344,7 @@ Visualization Manager:
           Value: true
         - Class: rviz/MarkerArray
           Enabled: true
-          Marker Topic: /anymal/vis/planning_global_path
+          Marker Topic: /alex/vis/planning_global_path
           Name: MarkerArray
           Namespaces:
             {}
@@ -387,7 +387,7 @@ Visualization Manager:
           Value: true
         - Class: rviz/MarkerArray
           Enabled: true
-          Marker Topic: /anymal/vis/ref_path
+          Marker Topic: /alex/vis/ref_path
           Name: MarkerArray
           Namespaces:
             {}
