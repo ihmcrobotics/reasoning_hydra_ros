@@ -43,6 +43,7 @@ add_library(${PROJECT_NAME}
   src/hydra_ros_pipeline.cpp
   src/backend/ros_backend_publisher.cpp
   src/backend/ros_vlm_relationships.cpp
+  src/frontend/ros_frontend_publisher.cpp
   src/input/enhanced_pointcloud_adaptor.cpp
   src/input/image_receiver.cpp
   src/input/pointcloud_adaptor.cpp
@@ -50,6 +51,7 @@ add_library(${PROJECT_NAME}
   src/input/ros_input_module.cpp
   src/input/ros_sensors.cpp
   src/navigation/ros_navigation_interface.cpp
+  src/utils/dsg_streaming_interface.cpp
   src/utils/lookup_tf.cpp)
 target_include_directories(${PROJECT_NAME}
   PUBLIC
@@ -97,7 +99,7 @@ install(
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME})
 install(DIRECTORY include/ DESTINATION include/)
-install(DIRECTORY launch config DESTINATION share/${PROJECT_NAME})
+install(DIRECTORY launch config rviz DESTINATION share/${PROJECT_NAME})
 
 ament_export_targets(${PROJECT_NAME}-targets HAS_LIBRARY_TARGET)
 ament_export_dependencies(

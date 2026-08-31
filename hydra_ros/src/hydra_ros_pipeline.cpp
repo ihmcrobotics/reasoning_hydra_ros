@@ -17,6 +17,7 @@
 
 #include "hydra_ros/backend/ros_backend_publisher.h"
 #include "hydra_ros/backend/ros_vlm_relationships.h"
+#include "hydra_ros/frontend/ros_frontend_publisher.h"
 #include "hydra_ros/navigation/ros_navigation_interface.h"
 
 namespace hydra {
@@ -70,8 +71,10 @@ void HydraRosPipeline::initFrontend() {
       "frontend", frontend_dsg_, shared_state_, logs);
   CHECK(frontend) << "Failed to construct frontend";
   if (config_.enable_frontend_output) {
-    LOG(WARNING) << "Frontend ROS output is configured but its ROS 2 publisher "
-                    "is not ported yet";
+    frontend->addSink(std::make_shared<RosFrontendPublisher>(
+        ianvs::NodeHandle::this_node("/hydra_ros_node/frontend")));
+    LOG(INFO) << "Publishing frontend scene graph on "
+                 "/hydra_ros_node/frontend/dsg";
   }
   modules_["frontend"] = std::shared_ptr<FrontendModule>(std::move(frontend));
 }
@@ -84,10 +87,13 @@ void HydraRosPipeline::initBackend() {
   auto backend_ptr = std::shared_ptr<BackendModule>(std::move(backend));
   modules_["backend"] = backend_ptr;
 
+  ros2_backend_publisher_ = std::make_shared<Ros2BackendPublisher>(
+      nh_, config_.active_object_edges_topic);
+  backend_ptr->addSink(ros2_backend_publisher_);
+  LOG(INFO) << "Publishing optimized scene graph on "
+               "/hydra_ros_node/backend/dsg";
+
   if (config_.enable_reasoning) {
-    ros2_backend_publisher_ = std::make_shared<Ros2BackendPublisher>(
-        nh_, config_.active_object_edges_topic);
-    backend_ptr->addSink(ros2_backend_publisher_);
     LOG(INFO) << "Publishing active object relationships on "
               << config_.active_object_edges_topic;
 
@@ -104,7 +110,7 @@ void HydraRosPipeline::initBackend() {
               << config_.vlm_relationship_service;
   }
 
-  if (backend_ptr->config.use_vlm) {
+  if (backend_ptr->config.use_vlm && !config_.enable_reasoning) {
     LOG(WARNING) << "VLM relationships are enabled, but the ROS 2 VLM adapter "
                     "is not ported yet";
   }
