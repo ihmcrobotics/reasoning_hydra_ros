@@ -91,6 +91,8 @@ def _launch_hydra(context):
             "receivers": [
                 {
                     "type": "ImageReceiver",
+                    "require_relations": _value(context, "require_relations").lower() == "true",
+                    "ns": "/" + _value(context, "namespace").strip("/") + "/input",
                     "sensor": {
                         "type": "camera_info",
                         "min_range": float(_value(context, "sensor_min_range")),
@@ -118,6 +120,9 @@ def _launch_hydra(context):
         "print_missing": False,
         "show_config": _value(context, "show_config").lower() == "true",
     }
+
+    if _value(context, "semantic_colormap_file"):
+        overrides["semantic_colormap_file"] = _value(context, "semantic_colormap_file")
 
     arguments = []
     for config_file in files:
@@ -176,6 +181,8 @@ def generate_launch_description():
         "panoptic_topic": "/panoptic/image_raw",
         "semantic_topic": "/semantic_inference/semantic_color/feature_image",
         "image_feature_topic": "/semantic_inference/image_feature",
+        "semantic_colormap_file": "",
+        "require_relations": "true",
         "relations_topic": "/semantic_inference/relation_features",
         "active_object_edges_topic":
             "/hydra_ros_node/backend/active_object_edges",

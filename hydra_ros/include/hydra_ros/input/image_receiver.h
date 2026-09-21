@@ -79,9 +79,16 @@ class ImageReceiver : public DataReceiver {
       semantic_inference_msgs::msg::FeatureVectorsStamped>;
   using Synchronizer = message_filters::Synchronizer<SyncPolicy>;
 
+  using ImageSyncPolicy = message_filters::sync_policies::ApproximateTime<
+      sensor_msgs::msg::Image, sensor_msgs::msg::Image, sensor_msgs::msg::Image,
+      semantic_inference_msgs::msg::FeatureVectorStamped,
+      semantic_inference_msgs::msg::FeatureImage>;
+  using ImageSynchronizer = message_filters::Synchronizer<ImageSyncPolicy>;
+
   struct Config : DataReceiver::Config {
     std::string ns = "~";
     size_t queue_size = 100;
+    bool require_relations = true;
   };
 
   ImageReceiver(const Config& config, size_t sensor_id);
@@ -123,6 +130,7 @@ class ImageReceiver : public DataReceiver {
       relations_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr camera_info_sub_;
   std::unique_ptr<Synchronizer> synchronizer_;
+  std::unique_ptr<ImageSynchronizer> image_synchronizer_;
   std::atomic<bool> processing_enabled_{true};
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr enable_processing_service_;
 

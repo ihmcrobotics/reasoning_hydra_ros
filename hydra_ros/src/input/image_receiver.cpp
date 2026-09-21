@@ -63,6 +63,7 @@ void declare_config(ImageReceiver::Config& config) {
   base<DataReceiver::Config>(config);
   field(config.ns, "ns");
   field(config.queue_size, "queue_size");
+  field(config.require_relations, "require_relations");
 }
 
 ImageReceiver::ImageReceiver(const Config& config, size_t sensor_id)
@@ -92,6 +93,7 @@ bool ImageReceiver::initImpl() {
   panoptic_sub_.subscribe(node, nh.resolve_name("panoptic/image_raw", false), rmw_qos_profile_sensor_data);
   feature_sub_.subscribe(node, nh.resolve_name("image_feature", false), rmw_qos_profile_sensor_data);
   label_sub_.subscribe(node, nh.resolve_name("semantic", false), rmw_qos_profile_sensor_data);
+  if (config.require_relations) {
   relations_sub_.subscribe(node, nh.resolve_name("relations", false), rmw_qos_profile_sensor_data);
   synchronizer_.reset(new Synchronizer(SyncPolicy(config.queue_size),
                                        color_sub_,
@@ -108,6 +110,16 @@ bool ImageReceiver::initImpl() {
                                              std::placeholders::_4,
                                              std::placeholders::_5,
                                              std::placeholders::_6));
+  } else {
+    image_synchronizer_ = std::make_unique<ImageSynchronizer>(
+        ImageSyncPolicy(config.queue_size), color_sub_, depth_sub_, panoptic_sub_,
+        feature_sub_, label_sub_);
+    image_synchronizer_->registerCallback(std::bind(
+        &ImageReceiver::callback, this, std::placeholders::_1,
+        std::placeholders::_2, std::placeholders::_3, std::placeholders::_4,
+        std::placeholders::_5,
+        std::make_shared<semantic_inference_msgs::msg::FeatureVectorsStamped>()));
+  }
 
   return true;
 }

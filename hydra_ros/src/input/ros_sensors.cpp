@@ -36,7 +36,11 @@ CameraInfo::ConstSharedPtr waitForCameraInfo(const std::string& topic) {
 
   LOG(INFO) << "Waiting for CameraInfo on " << topic
             << " to initialize sensor model";
+  // Sensor construction precedes spinAndWait in main; service the subscription
+  // here so camera initialization does not wait forever for an unhandled callback.
+  auto base = nh.node().get<rclcpp::node_interfaces::NodeBaseInterface>();
   while (rclcpp::ok()) {
+    rclcpp::spin_some(base);
     if (future.wait_for(std::chrono::milliseconds(100)) ==
         std::future_status::ready) {
       return future.get();
