@@ -4,6 +4,8 @@
 #include "hydra_ros/backend/ros_backend_publisher.h"
 
 #include <hydra/common/global_info.h>
+#include <hydra/utils/timing_utilities.h>
+#include <spark_dsg/serialization/graph_binary_serialization.h>
 #include <kimera_pgmo_ros/visualization_functions.h>
 #include <pose_graph_tools/pose_graph.h>
 #include <tf2_eigen/tf2_eigen.hpp>
@@ -37,17 +39,69 @@ Ros2BackendPublisher::Ros2BackendPublisher(
       tf_broadcaster_(nh_.node()),
       active_edges_pub_(
           nh.create_publisher<hydra_msgs::msg::ActiveObjectRelationships>(
-              active_edges_topic, rclcpp::QoS(10))) {}
+              active_edges_topic, rclcpp::QoS(10))) {
+  snapshot_writer_ = std::make_unique<hydra_msgs::native_snapshot::Writer>(
+      hydra_msgs::native_snapshot::defaultPath());
+  visualization_pub_ = nh_.create_publisher<hydra_msgs::msg::DsgUpdate>(
+      "dsg_visualization", rclcpp::QoS(1).reliable().transient_local());
+}
 
 void Ros2BackendPublisher::call(
     uint64_t timestamp_ns,
     const DynamicSceneGraph& graph,
     const kimera_pgmo::DeformationGraph& dgraph) {
-  dsg_sender_->sendGraph(graph, rclcpp::Time(timestamp_ns));
+  timing::ScopedTimer stage("backend/output_dsg", timestamp_ns, true, 1, false);
+  publishVisualization(graph, timestamp_ns);
+  // Full binary snapshots remain available for explicit ROS consumers. The local
+  // visualizer uses the compact snapshot and does not trigger this expensive path.
+  if (dsg_sender_->hasSubscribers()) {
+    dsg_sender_->sendGraph(graph, rclcpp::Time(timestamp_ns));
+  }
+  stage.reset("backend/output_pose_graph");
   publishPoseGraph(graph, dgraph, timestamp_ns);
+  stage.reset("backend/output_deformation_markers");
   publishDeformationGraph(dgraph, timestamp_ns);
+  stage.reset("backend/output_tf");
   publishBackendTf(graph, dgraph);
+  stage.reset("backend/output_object_edges");
   publishActiveObjectEdges(graph, timestamp_ns);
+}
+
+void Ros2BackendPublisher::publishVisualization(const DynamicSceneGraph& graph,
+                                                 uint64_t timestamp_ns) {
+  namespace native = hydra_msgs::native_snapshot;
+  timing::ScopedTimer stage("backend/visualization_graph_serialize", timestamp_ns, true, 1, false);
+  auto message = std::make_unique<hydra_msgs::msg::DsgUpdate>();
+  message->header.stamp = rclcpp::Time(timestamp_ns);
+  message->header.frame_id = GlobalInfo::instance().getFrames().map;
+  message->full_update = true;
+  message->sequence_number = visualization_sequence_++;
+  message->layer_contents.reserve(visualization_capacity_);
+  spark_dsg::io::binary::writeGraph(graph, message->layer_contents, false);
+  visualization_capacity_ = message->layer_contents.capacity();
+  stage.reset("backend/visualization_mesh_copy");
+  const auto mesh = graph.mesh();
+  native::Header header;
+  header.sequence = message->sequence_number;
+  header.timestamp = timestamp_ns;
+  header.vertices = mesh ? mesh->numVertices() : 0;
+  header.faces = mesh ? mesh->numFaces() : 0;
+  try {
+    snapshot_writer_->write(header, message->header.frame_id, message->layer_contents,
+        [&](uint64_t i) {
+          const auto& p = mesh->pos(i);
+          const auto c = mesh->has_colors ? mesh->color(i) : spark_dsg::Color(180, 180, 180);
+          return native::Vertex{p.x(), p.y(), p.z(), c.r, c.g, c.b, c.a};
+        }, [&](uint64_t i) {
+          const auto& f = mesh->face(i);
+          return native::Face{f[0], f[1], f[2]};
+        });
+  } catch (const std::exception& e) {
+    LOG(ERROR) << "Visualization snapshot failed: " << e.what();
+    return;
+  }
+  stage.reset("backend/visualization_publish");
+  visualization_pub_->publish(std::move(message));
 }
 
 void Ros2BackendPublisher::publishPoseGraph(

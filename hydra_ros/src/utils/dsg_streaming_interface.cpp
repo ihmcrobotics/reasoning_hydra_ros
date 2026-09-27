@@ -5,6 +5,7 @@
 #include "hydra_ros/utils/dsg_streaming_interface.h"
 
 #include <config_utilities/config.h>
+#include <hydra/utils/timing_utilities.h>
 #include <config_utilities/validation.h>
 #include <spark_dsg/serialization/graph_binary_serialization.h>
 
@@ -56,10 +57,14 @@ void DsgSender::sendGraph(const DynamicSceneGraph& graph,
   auto message = std::make_unique<hydra_msgs::msg::DsgUpdate>();
   message->header.stamp = stamp;
   message->header.frame_id = config.frame_id;
+  timing::ScopedTimer stage(config.timer_name + "/serialize", timestamp_ns, true, 1, false);
+  message->layer_contents.reserve(last_snapshot_bytes_);
   spark_dsg::io::binary::writeGraph(
       graph, message->layer_contents, config.serialize_dsg_mesh);
+  last_snapshot_bytes_ = message->layer_contents.size();
   message->full_update = true;
   message->sequence_number = sequence_number_++;
+  stage.reset(config.timer_name + "/publish");
   publisher_->publish(std::move(message));
 }
 

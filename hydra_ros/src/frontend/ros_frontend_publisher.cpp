@@ -5,6 +5,7 @@
 #include "hydra_ros/frontend/ros_frontend_publisher.h"
 
 #include <hydra/common/global_info.h>
+#include <hydra/utils/timing_utilities.h>
 
 #include <algorithm>
 #include <limits>
@@ -85,20 +86,32 @@ RosFrontendPublisher::RosFrontendPublisher(ianvs::NodeHandle nh) {
 void RosFrontendPublisher::call(uint64_t timestamp_ns,
                                 const DynamicSceneGraph& graph,
                                 const BackendInput& backend_input) {
-  dsg_sender_->sendGraph(graph, rclcpp::Time(timestamp_ns));
+  timing::ScopedTimer stage("frontend/output_dsg", timestamp_ns, true, 1, false);
+  // The backend consumes the in-process graph. Only explicit ROS subscribers
+  // need this additional full graph+mesh snapshot.
+  if (dsg_sender_->hasSubscribers()) {
+    dsg_sender_->sendGraph(graph, rclcpp::Time(timestamp_ns));
+  }
+  stage.stop();
 
   if (backend_input.deformation_graph) {
+    stage.reset("frontend/output_deformation_prepare");
     auto pose_graph = *backend_input.deformation_graph;
     pose_graph.stamp_ns = timestamp_ns;
     pose_graph.frame_id = GlobalInfo::instance().getFrames().odom;
+    stage.reset("frontend/output_deformation_publish");
     mesh_graph_pub_->publish(pose_graph);
+    stage.stop();
   }
 
   if (backend_input.mesh_update) {
+    stage.reset("frontend/output_mesh_delta_prepare");
     auto message = toMeshDeltaMessage(*backend_input.mesh_update,
                                       timestamp_ns,
                                       GlobalInfo::instance().getFrames().odom);
+    stage.reset("frontend/output_mesh_delta_publish");
     mesh_update_pub_->publish(message);
+    stage.stop();
   }
 }
 

@@ -5,6 +5,7 @@
 
 #include <hydra/backend/backend_module.h>
 #include <hydra_msgs/msg/active_object_relationships.hpp>
+#include <hydra_msgs/native_snapshot.hpp>
 #include <ianvs/node_handle.h>
 #include <pose_graph_tools_ros/conversions.h>
 #include <tf2_ros/transform_broadcaster.h>
@@ -38,6 +39,11 @@ class Ros2BackendPublisher : public BackendModule::Sink {
 
   ianvs::NodeHandle nh_;
   std::unique_ptr<DsgSender> dsg_sender_;
+  std::unique_ptr<hydra_msgs::native_snapshot::Writer> snapshot_writer_;
+  rclcpp::Publisher<hydra_msgs::msg::DsgUpdate>::SharedPtr visualization_pub_;
+  uint64_t visualization_sequence_ = 0;
+  size_t visualization_capacity_ = 0;
+  void publishVisualization(const DynamicSceneGraph& graph, uint64_t timestamp_ns);
   pose_graph_tools::PoseGraphPublisher pose_graph_pub_;
   rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr
       mesh_mesh_edges_pub_;

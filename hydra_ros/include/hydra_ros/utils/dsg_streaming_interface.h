@@ -30,10 +30,13 @@ class DsgSender {
 
   void sendGraph(const DynamicSceneGraph& graph, const rclcpp::Time& stamp) const;
 
+  bool hasSubscribers() const { return publisher_->get_subscription_count() != 0; }
+
  private:
   rclcpp::Publisher<hydra_msgs::msg::DsgUpdate>::SharedPtr publisher_;
   mutable std::optional<uint64_t> last_publish_time_ns_;
   mutable int64_t sequence_number_ = 0;
+  mutable size_t last_snapshot_bytes_ = 0;
 };
 
 void declare_config(DsgSender::Config& config);
