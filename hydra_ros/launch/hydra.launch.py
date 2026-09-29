@@ -121,6 +121,11 @@ def _launch_hydra(context):
         "show_config": _value(context, "show_config").lower() == "true",
     }
 
+    # Publish Hydra's own active distance fields independently of nvblox.
+    if _value(context, "enable_native_distance_views").lower() == "true":
+        overrides["reconstruction"] = {"sinks": [{"type": "NativeTsdfSink"}]}
+        overrides["frontend"] = {"freespace_places": {"sinks": [{"type": "NativeGvdDistanceSink"}]}}
+
     if _value(context, "semantic_colormap_file"):
         overrides["semantic_colormap_file"] = _value(context, "semantic_colormap_file")
 
@@ -173,6 +178,7 @@ def generate_launch_description():
         "odom_frame": "world",
         "map_frame": "world",
         "sensor_frame": "sensor",
+        "enable_native_distance_views": "true",
         "sensor_min_range": "0.1",
         "sensor_max_range": "5.0",
         "rgb_topic": "/rgb/image_raw",

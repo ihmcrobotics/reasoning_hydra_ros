@@ -41,6 +41,7 @@ ament_python_install_package(${PROJECT_NAME} PACKAGE_DIR src/${PROJECT_NAME})
 
 add_library(${PROJECT_NAME}
   src/hydra_ros_pipeline.cpp
+  src/visualization/native_distance_sinks.cpp
   src/backend/ros_backend_publisher.cpp
   src/backend/ros_vlm_relationships.cpp
   src/frontend/ros_frontend_publisher.cpp
