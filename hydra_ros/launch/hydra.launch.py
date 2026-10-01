@@ -37,6 +37,9 @@ def _launch_hydra(context):
     labelspace_name = _value(context, "labelspace_name")
     config_dir = os.path.join(hydra_share, "config", config_name)
 
+    backend = _value(context, "reconstruction_backend")
+    if backend == "nvblox": backend = "nvblox-cpu"  # Legacy launch compatibility.
+    reconstruction_file = "reconstruction_nvblox_config.yaml" if backend in ("nvblox-cpu", "nvblox-gpu") else "reconstruction_config.yaml"
     files = [
         os.path.join(hydra_ros_share, "config", "ros_pipeline.yaml"),
         os.path.join(
@@ -46,7 +49,7 @@ def _launch_hydra(context):
             f"{labelspace_name}_label_space.yaml",
         ),
         _config_file(
-            os.path.join(config_dir, "reconstruction_config.yaml"),
+            os.path.join(config_dir, reconstruction_file),
             "reconstruction",
         ),
         _config_file(os.path.join(config_dir, "frontend_config.yaml"), "frontend"),
@@ -77,7 +80,19 @@ def _launch_hydra(context):
     # Replace the ROS 1 $(arg ...) expressions present in the original dataset
     # files.  Overriding the complete receiver list also makes the effective
     # sensor configuration explicit in the launch description.
+    if backend not in ("cpu", "nvblox-cpu", "both", "nvblox-gpu"):
+        raise RuntimeError("reconstruction_backend must be cpu, nvblox-cpu, both, or nvblox-gpu")
+    validate_gvd = _value(context, "gpu_validate_gvd").lower() == "true"
+    if validate_gvd and backend != "both":
+        raise RuntimeError("gpu_validate_gvd requires reconstruction_backend:=both")
+    # Both is a CPU-reference diagnostic; use only the GPU range from its profile.
+    gpu_overrides = {}
+    if backend == "both":
+        with open(os.path.join(config_dir, "reconstruction_nvblox_config.yaml")) as stream:
+            gpu_profile = yaml.safe_load(stream)
+        gpu_overrides["gpu_max_integration_distance_m"] = gpu_profile["gpu_max_integration_distance_m"]
     overrides = {
+        "reconstruction": {"backend": backend, "gpu_validate_gvd": validate_gvd, **gpu_overrides},
         "robot_id": int(_value(context, "robot_id")),
         "config_verbosity": int(_value(context, "config_verbosity")),
         "exit_after_clock": _value(context, "exit_after_clock").lower() == "true",
@@ -123,7 +138,7 @@ def _launch_hydra(context):
 
     # Publish Hydra's own active distance fields independently of nvblox.
     if _value(context, "enable_native_distance_views").lower() == "true":
-        overrides["reconstruction"] = {"sinks": [{"type": "NativeTsdfSink"}]}
+        overrides["reconstruction"]["sinks"] = [{"type": "NativeTsdfSink"}]
         overrides["frontend"] = {"freespace_places": {"sinks": [{"type": "NativeGvdDistanceSink"}]}}
 
     if _value(context, "semantic_colormap_file"):
@@ -168,6 +183,8 @@ def _launch_hydra(context):
 
 def generate_launch_description():
     defaults = {
+        "reconstruction_backend": "cpu",
+        "gpu_validate_gvd": "false",
         "namespace": "hydra",
         "dataset": "uhumans2",
         "config_name": "uhumans2",
