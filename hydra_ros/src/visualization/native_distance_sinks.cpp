@@ -1,3 +1,6 @@
+// Copyright (c) 2026, IHMC Robotics Lab.
+// All rights reserved.
+
 // Native RDX views of Hydra's active TSDF and GVD distance field.
 #include <hydra/reconstruction/reconstruction_module.h>
 #include <hydra/frontend/gvd_place_extractor.h>

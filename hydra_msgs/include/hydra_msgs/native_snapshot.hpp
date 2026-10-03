@@ -1,3 +1,6 @@
+// Copyright (c) 2026, IHMC Robotics Lab.
+// All rights reserved.
+
 #pragma once
 // Local, versioned visualization snapshot. Atomic rename keeps readers on a complete
 // inode. The graph and indexed mesh share one header, so dropped ROS notifications
