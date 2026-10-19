@@ -92,10 +92,26 @@ class NativeDistanceWriter {
 class NativeTsdfSink : public ReconstructionModule::Sink {
  public:
   explicit NativeTsdfSink(const NativeDistanceConfig& config)
-      : config_(config), writer_("tsdf.bin", 1, config.rate_hz) {}
+      : config_(config), writer_("tsdf.bin", 1, config.rate_hz), active_mesh_writer_("active_mesh.bin", 0, config.rate_hz) {}
   void call(uint64_t stamp, const Eigen::Isometry3d&, const TsdfLayer& layer,
             const ReconstructionOutput& output) override {
     if (!writer_.ready()) return;
+    // Export the selected backend's existing active mesh, never the persistent DSG archive.
+    // output.map() is cloned before archival; explicitly omit the blocks being archived.
+    const BlockIndexSet archived(output.archived_blocks.begin(), output.archived_blocks.end());
+    std::vector<float> mesh_vertices;
+    for (const auto& block : output.map().getMeshLayer()) {
+      if (archived.count(block.index)) continue;
+      for (const auto& face : block.faces) {
+        if (face[0] >= block.points.size() || face[1] >= block.points.size() || face[2] >= block.points.size()) continue;
+        if (!block.points[face[0]].allFinite() || !block.points[face[1]].allFinite() || !block.points[face[2]].allFinite()) continue;
+        for (const auto index : face) {
+          const auto& p = block.points[index];
+          mesh_vertices.insert(mesh_vertices.end(), {p.x(), p.y(), p.z(), .5f, .5f, .5f, 1.f});
+        }
+      }
+    }
+    active_mesh_writer_.write(mesh_vertices, stamp);
     const float band = std::max(output.map().config.truncation_distance, 1e-6f);
     std::vector<float> points;
     for (const auto& block : layer) {
@@ -113,6 +129,7 @@ class NativeTsdfSink : public ReconstructionModule::Sink {
  private:
   NativeDistanceConfig config_;
   NativeDistanceWriter writer_;
+  NativeDistanceWriter active_mesh_writer_;
 };
 
 class NativeGvdDistanceSink : public GvdPlaceExtractor::Sink {
